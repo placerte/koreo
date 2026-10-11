@@ -15,3 +15,8 @@ Koreo's durable project artifacts are grouped by role:
 For current authority and precedence rules, see
 [`AGENTS.md`](../AGENTS.md). Milestone 1 must be executed only from
 [`handoffs/handoff_261011_1.md`](handoffs/handoff_261011_1.md).
+
+The proposed Milestone 2 contract is
+[`handoffs/handoff_261011_2.md`](handoffs/handoff_261011_2.md). It remains a
+draft and does not authorize implementation until the owner explicitly
+approves it.

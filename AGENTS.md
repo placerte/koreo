@@ -81,6 +81,8 @@ default.
 
 - `docs/handoffs/handoff_261011_1.md` — sole execution contract for Milestone
   1, including scope, implementation order, tests, and Definition of Done.
+- `docs/handoffs/handoff_261011_2.md` — draft Milestone 2 audio/grid contract.
+  It is planning material only until explicit owner approval is recorded.
 - `docs/specifications/koreo_specs_v1.md` — historical S-001–S-030 product
   checkpoint. It is planning context, not an execution contract.
 - `docs/references/display-a.xlsx` — non-binding UX reference for the wrapped
