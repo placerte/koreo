@@ -8,6 +8,8 @@ and represents pickup material before the display count origin.
 from dataclasses import dataclass
 from fractions import Fraction
 
+from koreo.domain.calibration import BeatCalibration
+
 # [GH-4] [S-M1-01] [S-M1-02] Exact immutable domain entities.
 
 
@@ -68,3 +70,4 @@ class Project:
     moves: tuple[Move, ...]
     default_count_group: int = 8
     count_origin: Fraction = Fraction(0)
+    calibration: BeatCalibration | None = None
