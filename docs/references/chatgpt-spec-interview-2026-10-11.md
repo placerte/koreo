@@ -1,7 +1,8 @@
 # Koreo — ChatGPT Specification Interview Archive
 
 > Historical background only. This transcript is not an execution contract and
-> does not override `handoff_261011_1.md` or other authoritative repository artifacts.
+> does not override `docs/handoffs/handoff_261011_1.md` or other authoritative
+> repository artifacts.
 
 ## Provenance
 
@@ -13,7 +14,7 @@
 - Current node: `d7c43759-bb3f-4500-9aa9-94ac4797d6d1`
 - Source chain: 368 nodes
 - Archived visible turns: 200 (100 user, 100 assistant)
-- Companion JSON SHA-256: `5fc0a9325a5770d03d5631d420745a8cc15671f001118e4834d2e9c9bc8b393b`
+- Companion JSON SHA-256: `47898d64ea36355f0e705619c5f56c91622421a6945c750dbc42eec298b3e551`
 
 The archive contains every browser-visible user and assistant text turn on the
 shared conversation's current branch. It excludes hidden system context, tool
@@ -22,10 +23,10 @@ bootstrap data.
 
 ## Referenced artifacts
 
-- `display-a.xlsx` — Non-binding UX reference uploaded during the interview (present locally).
-- `koreo_specs_v1.md` — Specification checkpoint covering S-001 through S-030 (present locally).
+- `docs/references/display-a.xlsx` — Non-binding UX reference uploaded during the interview (present locally).
+- `docs/specifications/koreo_specs_v1.md` — Specification checkpoint covering S-001 through S-030 (present locally).
 - `koreo_specs_v2.md` — Specification checkpoint covering S-001 through S-075 (not present locally).
-- `handoff_261011_1.md` — Authoritative Milestone 1 execution handoff (present locally).
+- `docs/handoffs/handoff_261011_1.md` — Authoritative Milestone 1 execution handoff (present locally).
 
 ## Transcript
 

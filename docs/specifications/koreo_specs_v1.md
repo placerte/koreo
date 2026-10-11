@@ -98,7 +98,7 @@ This document is a durable checkpoint of the spec'ing interview. Its numbered S-
 
 ## 3. Display A — Non-binding UX reference
 
-The user supplied `display-a.xlsx` as an illustrative **possible display**, not an approved rendering. The concept is a wrapped, vertically progressing choreography sheet, with rows for musical sections and cells for phrases/counts, potentially allowing shorter sections to be centered visually. It may be more readable to dancers than a continuously scrolling DAW-style timeline. It is a candidate for the musical-grid editing view and choreography-sheet export; usability and rendering must be tested. **No exact spreadsheet geometry, styling or cell dimensions are binding.** The uploaded reference should be retained alongside this checkpoint for later UX work.
+The user supplied [`display-a.xlsx`](../references/display-a.xlsx) as an illustrative **possible display**, not an approved rendering. The concept is a wrapped, vertically progressing choreography sheet, with rows for musical sections and cells for phrases/counts, potentially allowing shorter sections to be centered visually. It may be more readable to dancers than a continuously scrolling DAW-style timeline. It is a candidate for the musical-grid editing view and choreography-sheet export; usability and rendering must be tested. **No exact spreadsheet geometry, styling or cell dimensions are binding.** The uploaded reference should be retained alongside this checkpoint for later UX work.
 
 ## 4. V1 delivery guardrails
 

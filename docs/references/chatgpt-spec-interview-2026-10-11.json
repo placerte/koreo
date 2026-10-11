@@ -13,7 +13,7 @@
   },
   "authority": {
     "classification": "historical-background",
-    "notice": "This archive does not override handoff_261011_1.md or other authoritative repository artifacts."
+    "notice": "This archive does not override docs/handoffs/handoff_261011_1.md or other authoritative repository artifacts."
   },
   "selection": {
     "branch": "current-node ancestry",
@@ -40,12 +40,12 @@
   },
   "referenced_artifacts": [
     {
-      "path": "display-a.xlsx",
+      "path": "docs/references/display-a.xlsx",
       "description": "Non-binding UX reference uploaded during the interview",
       "present_locally": true
     },
     {
-      "path": "koreo_specs_v1.md",
+      "path": "docs/specifications/koreo_specs_v1.md",
       "description": "Specification checkpoint covering S-001 through S-030",
       "present_locally": true
     },
@@ -55,7 +55,7 @@
       "present_locally": false
     },
     {
-      "path": "handoff_261011_1.md",
+      "path": "docs/handoffs/handoff_261011_1.md",
       "description": "Authoritative Milestone 1 execution handoff",
       "present_locally": true
     }

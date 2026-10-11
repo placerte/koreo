@@ -27,15 +27,15 @@ that may be relevant when working in this repository.
 <!-- agmod:end -->
 
 
-Koreo is at the project-intake stage. Treat written repository artifacts as
-the source of truth and keep the first implementation small, local, and easy
-to inspect.
+Koreo has completed project intake and is ready for Milestone 1 execution.
+Treat written repository artifacts as the source of truth and keep the first
+implementation small, local, and easy to inspect.
 
 ## Working rules
 
-- Read `scratch-prompt.md` before changing product scope. It is the current
-  product brief, but it is explicitly temporary and should eventually be
-  replaced by durable project artifacts.
+- Use `docs/handoffs/handoff_261011_1.md` as the sole execution contract for
+  Milestone 1. The original scratch prompt is archived for provenance and is
+  no longer authoritative.
 - Follow the active instructions in `llm/` in the order documented below.
 - Stop and ask when a decision would materially affect product behavior and
   is not specified in an artifact. Record important approved decisions using
@@ -79,6 +79,12 @@ default.
 
 ### Task-specific references
 
+- `docs/handoffs/handoff_261011_1.md` — sole execution contract for Milestone
+  1, including scope, implementation order, tests, and Definition of Done.
+- `docs/specifications/koreo_specs_v1.md` — historical S-001–S-030 product
+  checkpoint. It is planning context, not an execution contract.
+- `docs/references/display-a.xlsx` — non-binding UX reference for the wrapped
+  choreography-sheet concept.
 - `docs/references/chatgpt-spec-interview-2026-10-11.md` — complete
   browser-visible transcript of the product-specification interview. Use only
   for historical background and rationale; it does not override a handoff or
@@ -101,6 +107,8 @@ default.
   low-bloat Python solutions. This document is deprecated and is context only.
 - `llm/general_project_starter_v1.md` — ordered preset for general projects;
   the app-development preset is more specific for this repository.
+- `docs/archive/scratch-prompt.md` — superseded intake notes retained only for
+  provenance.
 
 ## Current product boundary
 
