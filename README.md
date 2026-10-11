@@ -6,8 +6,8 @@ complementary forms: a continuous timeline for detailed timing work and a
 wrapped choreography sheet for rehearsal and review.
 
 The project has completed its initial product-specification phase. The V1
-roadmap is defined and tracked on GitHub; application implementation has not
-started yet.
+roadmap is defined and tracked on GitHub, and the Milestone 1 read-only
+prototype is now under implementation.
 
 ## Intended V1 workflow
 
@@ -35,9 +35,11 @@ Preparation is complete enough to begin Milestone 1:
 - dependencies and parent/sub-issue relationships are recorded; and
 - the local progress tracker mirrors the hosted roadmap.
 
-There is no runnable application in the repository yet. The next work item is
-[issue #3, scaffold the Python package and quality toolchain](https://github.com/placerte/koreo/issues/3),
-under the [Milestone 1 parent issue](https://github.com/placerte/koreo/issues/2).
+The repository now contains the Milestone 1 Python package, domain model,
+validation, shared fixture, presentation mappings, and read-only PySide6
+prototype. Automated validation is in place; owner visual review remains the
+final milestone gate. Work is coordinated under the
+[Milestone 1 parent issue](https://github.com/placerte/koreo/issues/2).
 
 ## Milestone 1
 
@@ -78,8 +80,35 @@ The implementation direction is:
 - a `src/` package layout with Hatchling; and
 - pytest, Black, and mypy for tests, formatting, and type checking.
 
-Setup, run, and test commands will be documented here when the Milestone 1
-scaffold lands. Until then, there are no application commands to run.
+## Development
+
+Install the locked development environment and launch the prototype:
+
+```console
+uv sync
+uv run koreo
+```
+
+Run the complete automated checks:
+
+```console
+uv run pytest
+uv run black --check .
+uv run mypy .
+uv build
+```
+
+The GUI tests select Qt's offscreen platform automatically. To regenerate the
+actual application screenshots used for Milestone 1 review in a headless
+environment:
+
+```console
+QT_QPA_PLATFORM=offscreen uv run python scripts/capture_screenshots.py
+```
+
+The prototype is intentionally read-only. Use the Timeline and Sheet tabs to
+inspect the same representative in-memory project; project files and imported
+audio are not implemented in this milestone.
 
 ## Project artifacts
 
