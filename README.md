@@ -5,9 +5,8 @@ musical structure of a song. It is designed to show the same project in two
 complementary forms: a continuous timeline for detailed timing work and a
 wrapped choreography sheet for rehearsal and review.
 
-The project has completed its initial product-specification phase. The V1
-roadmap is defined and tracked on GitHub, and the Milestone 1 read-only
-prototype is now under implementation.
+The V1 roadmap is defined and tracked on GitHub. Milestone 1 is complete, and
+the approved Milestone 2 audio/calibration workflow is under implementation.
 
 ## Intended V1 workflow
 
@@ -26,20 +25,22 @@ video-backed move library are outside the committed V1 scope.
 
 ## Current status
 
-Preparation is complete enough to begin Milestone 1:
+The repository currently provides:
 
 - the product interview has been distilled into a reviewed specification
   checkpoint;
-- the first executable handoff defines the implementation contract;
+- approved execution handoffs for Milestones 1 and 2;
 - all six V1 milestones and their work items are tracked as GitHub issues;
 - dependencies and parent/sub-issue relationships are recorded; and
 - the local progress tracker mirrors the hosted roadmap.
 
-The repository now contains the Milestone 1 Python package, domain model,
-validation, shared fixture, presentation mappings, and read-only PySide6
-prototype. Automated validation is in place; owner visual review remains the
-final milestone gate. Work is coordinated under the
-[Milestone 1 parent issue](https://github.com/placerte/koreo/issues/2).
+- the completed Milestone 1 domain model and read-only dual-view prototype;
+- exact constant-tempo calibration and tap-tempo logic; and
+- an in-progress guided setup screen with MP3/WAV decoding, playback/seek
+  controls, BPM entry/tapping, and anchor/calibration capture.
+
+Milestone 2 work is coordinated under
+[issue #11](https://github.com/placerte/koreo/issues/11).
 
 ## Milestone 1
 
@@ -64,8 +65,8 @@ packaging. Its sole execution contract is
 | 5 | Project persistence and recovery | [#32](https://github.com/placerte/koreo/issues/32) |
 | 6 | Choreography sheet exports and integrated workflow | [#38](https://github.com/placerte/koreo/issues/38) |
 
-Milestones 2–6 describe the agreed roadmap, but each requires its own approved
-handoff before implementation begins.
+Milestone 2 has an approved handoff. Milestones 3–6 require their own approved
+handoffs before implementation begins.
 
 ## Architecture and toolchain
 
@@ -89,6 +90,13 @@ uv sync
 uv run koreo
 ```
 
+The app opens with guided setup. Choose an MP3 or WAV, wait for decoder
+confirmation, then play or seek to a musical `one`. Type BPM directly, or
+focus the **Tap BPM** button and press Space at least twice; key auto-repeat is
+ignored and three seconds of inactivity starts a new tapping session. Click
+**Set current position as beat 0**, then **Enter editor**. The optional Refine
+field matches a grid beat (for example `128`) to the current audio position.
+
 Run the complete automated checks:
 
 ```console
@@ -106,15 +114,17 @@ environment:
 QT_QPA_PLATFORM=offscreen uv run python scripts/capture_screenshots.py
 ```
 
-The prototype is intentionally read-only. Use the Timeline and Sheet tabs to
-inspect the same representative in-memory project; project files and imported
-audio are not implemented in this milestone.
+The editor views remain read-only while Milestone 2 is in progress. Imported
+audio is currently used by the setup/calibration workflow; shared playback,
+waveform rendering, and playheads inside both editor views are still pending.
 
 ## Project artifacts
 
 Repository artifacts are the source of truth:
 
 - [`docs/handoffs/handoff_261011_1.md`](docs/handoffs/handoff_261011_1.md) — authoritative Milestone 1
+  execution contract;
+- [`docs/handoffs/handoff_261011_2.md`](docs/handoffs/handoff_261011_2.md) — authoritative Milestone 2
   execution contract;
 - [`docs/progress_tracker.csv`](docs/progress_tracker.csv) — local mirror of
   milestone and issue progress;
@@ -133,7 +143,7 @@ directly from the historical interview or specification checkpoint.
 
 ## Contributing
 
-For Milestone 1, start with the handoff and follow its ordering, scope limits,
+For the active milestone, start with its handoff and follow its ordering, scope limits,
 acceptance criteria, and stop conditions. Keep behavior changes tested and
 preserve the separation between domain, presentation, and GUI layers. If a
 choice would materially change product behavior and is not settled by an

@@ -16,6 +16,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
+        self.audio_source: object | None = None
         self.timeline_view = TimelineView(build_timeline(project))
         self.sheet_view = SheetView(build_sheet(project))
         self.tabs = QTabWidget()
@@ -23,5 +24,5 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.timeline_view, "Timeline")
         self.tabs.addTab(self.sheet_view, "Sheet")
         self.setCentralWidget(self.tabs)
-        self.setWindowTitle(f"Koreo — {project.name} (read-only prototype)")
+        self.setWindowTitle(f"Koreo — {project.name}")
         self.resize(1100, 700)
