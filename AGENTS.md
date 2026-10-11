@@ -16,6 +16,7 @@ that may be relevant when working in this repository.
 - llm/general_project_starter_v1.md
 - llm/git_hosting_toolbox.md
 - llm/gotchas.md
+- llm/progress_tracker.md
 - llm/project_handoff_standard_v1.md
 - llm/project_intake_v1.md
 - llm/project_operating_model_v1.md
@@ -78,6 +79,11 @@ default.
 
 ### Task-specific references
 
+- `docs/references/chatgpt-spec-interview-2026-10-11.md` — complete
+  browser-visible transcript of the product-specification interview. Use only
+  for historical background and rationale; it does not override a handoff or
+  other authoritative repository artifact. The companion `.json` file
+  preserves normalized message IDs, ordering, timestamps, and source metadata.
 - `llm/curated_llm_workflow_v_1.md` — historical description of the full
   web-client design interview, handoff generation, local execution, and review
   loop. It is deprecated but remains useful workflow context.
