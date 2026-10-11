@@ -1,6 +1,11 @@
 # Milestone 1 review evidence
 
-Status: **awaiting owner visual review**
+Status: **approved by the owner on 2026-10-11**
+
+Approval note: “Looks good enough for now.” The owner expects to provide
+additional comments while exercising the official workflows. This approval
+closes the Milestone 1 visual checkpoint; it does not freeze prototype layout
+choices or pre-approve later milestone behavior.
 
 The screenshots in this directory are captures of the actual PySide6
 application rendering the same deterministic `Project` instance. They are not
