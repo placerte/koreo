@@ -112,3 +112,32 @@ active handoff without changing its milestone boundary.
 - **Impact:** Waveform pointer tests must distinguish click from drag. Future
   main-window controls must not override Space; modal tools must explicitly
   define whether they temporarily own it.
+
+## KOR-DEC-007 — Preserve UX independently of GUI framework
+
+- **Date:** 2026-10-11
+- **Context:** The current prototype may be rewritten in another GUI framework
+  before official V1.0.
+- **Decision:** Maintain `docs/specifications/ui_behavior_v1.md` as the
+  framework-neutral source for approved interaction behavior. Record observable
+  inputs, state transitions, geometry invariants, cancellation semantics, and
+  acceptance checks rather than toolkit-specific mechanisms.
+- **Rationale:** A framework rewrite must not silently discard behavior refined
+  through human testing.
+- **Impact:** Every accepted UI adjustment updates the behavior specification
+  and relevant review evidence. Framework-specific implementation remains
+  replaceable.
+
+## KOR-DEC-008 — Defer final calibration UX until song structure
+
+- **Date:** 2026-10-11
+- **Context:** Waveform calibration was usable, but owner review determined
+  that final anchor/refinement interaction will benefit from the song-structure
+  workflow.
+- **Decision:** Preserve the exact calibration domain and prototype controls,
+  but defer final UX approval until structure authoring exists. Continue with
+  count presentation first.
+- **Rationale:** Calibration points can then be placed and understood against
+  meaningful structural regions instead of an isolated waveform.
+- **Impact:** Tap BPM remains approved. Anchor/refinement are not considered
+  final and must be revisited during the structure milestone.

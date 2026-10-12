@@ -25,6 +25,7 @@ class SheetCanvas(QWidget):
     def __init__(self, model: SheetModel) -> None:
         super().__init__()
         self.model = model
+        self.show_continuous_counts = False
         track_count = len(model.lines[0].tracks) if model.lines else 0
         line_height = _COUNT_HEIGHT + track_count * _TRACK_HEIGHT + _LINE_GAP
         width = _MARGIN * 2 + _HEADER_WIDTH + model.beats_per_line * _CELL_WIDTH
@@ -70,8 +71,11 @@ class SheetCanvas(QWidget):
             painter.drawText(
                 rect.adjusted(0, 3, 0, -18), Qt.AlignmentFlag.AlignCenter, label
             )
+            count_text = cell.label
+            if self.show_continuous_counts:
+                count_text = f"{count_text} · {cell.continuous_label}"
             painter.drawText(
-                rect.adjusted(0, 20, 0, -2), Qt.AlignmentFlag.AlignCenter, cell.label
+                rect.adjusted(0, 20, 0, -2), Qt.AlignmentFlag.AlignCenter, count_text
             )
 
         for row_index, row in enumerate(line.tracks):
@@ -163,3 +167,7 @@ class SheetView(QScrollArea):
         self.setWidget(self.canvas)
         self.setWidgetResizable(False)
         self.setAccessibleName("Sheet view")
+
+    def set_show_continuous_counts(self, visible: bool) -> None:
+        self.canvas.show_continuous_counts = visible
+        self.canvas.update()

@@ -130,6 +130,8 @@ Repository artifacts are the source of truth:
   execution contract;
 - [`docs/progress_tracker.csv`](docs/progress_tracker.csv) — local mirror of
   milestone and issue progress;
+- [`docs/specifications/ui_behavior_v1.md`](docs/specifications/ui_behavior_v1.md) —
+  framework-neutral interaction behavior to preserve through a GUI rewrite;
 - [`docs/specifications/koreo_specs_v1.md`](docs/specifications/koreo_specs_v1.md) — reviewed V1 specification
   checkpoint, not an execution contract;
 - [`docs/references/chatgpt-spec-interview-2026-10-11.md`](docs/references/chatgpt-spec-interview-2026-10-11.md)

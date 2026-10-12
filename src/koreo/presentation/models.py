@@ -48,6 +48,7 @@ class TimelineModel:
     regions: tuple[RegionSpan, ...]
     gaps: tuple[GapSpan, ...]
     tracks: tuple[TrackRow, ...]
+    counts: tuple["CountCell", ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,9 @@ class CountCell:
     label: str
     region_id: str | None
     region_label: str | None
+    continuous_label: str
+    group_size: int
+    restarted: bool
 
 
 @dataclass(frozen=True, slots=True)

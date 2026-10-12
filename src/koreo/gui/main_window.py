@@ -8,6 +8,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QProgressBar,
     QSlider,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -71,6 +73,13 @@ class MainWindow(QMainWindow):
         self.bpm_edit.setAccessibleName("Manual BPM")
         self.bpm_edit.setMaximumWidth(90)
         self.bpm_edit.editingFinished.connect(self._manual_bpm_changed)
+        self.continuous_counts = QCheckBox("Continuous beat numbers")
+        self.continuous_counts.toggled.connect(
+            self.timeline_view.set_show_continuous_counts
+        )
+        self.continuous_counts.toggled.connect(
+            self.sheet_view.set_show_continuous_counts
+        )
 
         song_bar = QHBoxLayout()
         song_bar.addWidget(self.choose_song_button)
@@ -78,6 +87,21 @@ class MainWindow(QMainWindow):
         song_bar.addWidget(QLabel("BPM:"))
         song_bar.addWidget(self.bpm_edit)
         song_bar.addWidget(self.tap_bpm_button)
+
+        count_bar = QHBoxLayout()
+        count_bar.addWidget(QLabel("Count origin:"))
+        self.count_origin_edit = QLineEdit(str(project.count_origin))
+        self.count_origin_edit.setMaximumWidth(80)
+        self.count_origin_edit.editingFinished.connect(self._count_origin_changed)
+        count_bar.addWidget(self.count_origin_edit)
+        count_bar.addWidget(QLabel("Default group:"))
+        self.count_group_spin = QSpinBox()
+        self.count_group_spin.setRange(1, 64)
+        self.count_group_spin.setValue(project.default_count_group)
+        self.count_group_spin.valueChanged.connect(self._count_group_changed)
+        count_bar.addWidget(self.count_group_spin)
+        count_bar.addWidget(self.continuous_counts)
+        count_bar.addStretch(1)
 
         self.transport = QWidget()
         transport_layout = QVBoxLayout(self.transport)
@@ -159,6 +183,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(song_bar)
+        layout.addLayout(count_bar)
         layout.addWidget(self.transport)
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
@@ -249,6 +274,29 @@ class MainWindow(QMainWindow):
             self.bpm_edit.setText(
                 f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
             )
+
+    def _count_origin_changed(self) -> None:
+        try:
+            origin = Fraction(self.count_origin_edit.text().strip())
+        except (ValueError, ZeroDivisionError):
+            self.count_origin_edit.setText(str(self.project.count_origin))
+            return
+        self.project = replace(self.project, count_origin=origin)
+        self._refresh_count_views()
+
+    def _count_group_changed(self, group_size: int) -> None:
+        self.project = replace(self.project, default_count_group=group_size)
+        self._refresh_count_views()
+
+    def _refresh_count_views(self) -> None:
+        timeline_model = build_timeline(self.project)
+        sheet_model = build_sheet(self.project)
+        self.timeline_view.model = timeline_model
+        self.timeline_view.canvas.model = timeline_model
+        self.timeline_view.canvas.update()
+        self.sheet_view.model = sheet_model
+        self.sheet_view.canvas.model = sheet_model
+        self.sheet_view.canvas.update()
 
     def _toggle_playback(self) -> None:
         if self.playback.is_playing:

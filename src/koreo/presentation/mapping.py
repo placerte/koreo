@@ -4,6 +4,7 @@ from fractions import Fraction
 
 from koreo.domain.models import Move, MusicalRegion, Project
 from koreo.domain.validation import validate_project
+from koreo.presentation.counting import map_counts
 from koreo.presentation.models import (
     CountCell,
     GapSpan,
@@ -64,6 +65,7 @@ def build_timeline(project: Project) -> TimelineModel:
         regions=regions,
         gaps=_top_level_gaps(project, start, end),
         tracks=tracks,
+        counts=_count_cells(project, start, end),
     )
 
 
@@ -92,10 +94,7 @@ def build_sheet(project: Project, *, beats_per_line: int = 16) -> SheetModel:
     index = 0
     while line_start < final_end:
         line_end = min(line_start + beats_per_line, final_end)
-        counts = tuple(
-            _count_cell(project, Fraction(beat), Fraction(beat + 1))
-            for beat in range(int(line_start), int(line_end))
-        )
+        counts = _count_cells(project, line_start, line_end)
         rows = tuple(
             SheetTrackRow(
                 track_id=track.id,
@@ -174,26 +173,27 @@ def _top_level_gaps(
     return tuple(gaps)
 
 
-def _count_cell(project: Project, start: Fraction, end: Fraction) -> CountCell:
-    top_regions = tuple(
-        region
-        for region in project.regions
-        if region.parent_id is None and region.start <= start < region.end
-    )
-    region = top_regions[0] if top_regions else None
-    group = (
-        region.count_group
-        if region and region.count_group
-        else project.default_count_group
-    )
-    relative = start - project.count_origin
-    label = str(int(relative % group) + 1)
-    return CountCell(
-        start=start,
-        end=end,
-        label=label,
-        region_id=region.id if region else None,
-        region_label=region.label if region else None,
+def _count_cells(
+    project: Project, start: Fraction, end: Fraction
+) -> tuple[CountCell, ...]:
+    integer_start = _floor_fraction(start)
+    integer_end = _ceil_fraction(end)
+    labels = map_counts(project, integer_start, integer_end)
+    regions_by_id = {region.id: region for region in project.regions}
+    return tuple(
+        CountCell(
+            start=label.beat,
+            end=label.beat + 1,
+            label=label.local,
+            region_id=label.region_id,
+            region_label=(
+                regions_by_id[label.region_id].label if label.region_id else None
+            ),
+            continuous_label=label.continuous,
+            group_size=label.group_size,
+            restarted=label.restarted,
+        )
+        for label in labels
     )
 
 

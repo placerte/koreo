@@ -23,6 +23,7 @@ class MusicalRegion:
     duration: Fraction
     parent_id: str | None = None
     count_group: int | None = None
+    count_restart: bool = True
 
     @property
     def end(self) -> Fraction:

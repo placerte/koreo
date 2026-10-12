@@ -24,6 +24,7 @@ class TimelineCanvas(QWidget):
     def __init__(self, model: TimelineModel) -> None:
         super().__init__()
         self.model = model
+        self.show_continuous_counts = False
         region_rows = 1 + max((region.depth for region in model.regions), default=0)
         width = _HEADER_WIDTH + int(float(model.end - model.start) * _BEAT_WIDTH) + 30
         height = (
@@ -55,15 +56,18 @@ class TimelineCanvas(QWidget):
     def _paint_ruler(self, painter: QPainter) -> None:
         painter.setPen(QPen(QColor("#64748b")))
         painter.drawText(12, 25, "Beat")
-        for beat in range(int(self.model.start), int(self.model.end) + 1):
-            x = self.x_for_beat(Fraction(beat))
-            major = (beat - int(self.model.count_origin)) % self.model.count_group == 0
+        for cell in self.model.counts:
+            beat = cell.start
+            x = self.x_for_beat(beat)
+            major = cell.label == "1"
             painter.setPen(QPen(QColor("#94a3b8"), 2 if major else 1))
             painter.drawLine(int(x), 18 if major else 27, int(x), self.height() - 12)
-            count = ((beat - int(self.model.count_origin)) % self.model.count_group) + 1
             painter.setPen(QPen(QColor("#334155")))
+            text = cell.label
+            if self.show_continuous_counts:
+                text = f"{text}\n{cell.continuous_label}"
             painter.drawText(
-                QRectF(x - 14, 2, 28, 18), Qt.AlignmentFlag.AlignCenter, str(count)
+                QRectF(x - 17, 0, 34, 28), Qt.AlignmentFlag.AlignCenter, text
             )
 
     def _paint_regions(self, painter: QPainter) -> None:
@@ -144,3 +148,7 @@ class TimelineView(QScrollArea):
         self.setWidget(self.canvas)
         self.setWidgetResizable(False)
         self.setAccessibleName("Timeline view")
+
+    def set_show_continuous_counts(self, visible: bool) -> None:
+        self.canvas.show_continuous_counts = visible
+        self.canvas.update()

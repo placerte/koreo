@@ -89,6 +89,15 @@ def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
     assert not window.tap_bpm_button.isEnabled()
     assert window.bpm_edit.text() == "120"
     assert window.tempo_bpm == Fraction(120)
+    window.continuous_counts.setChecked(True)
+    assert window.timeline_view.canvas.show_continuous_counts
+    assert window.sheet_view.canvas.show_continuous_counts
+    window.count_origin_edit.setText("-2")
+    window.count_origin_edit.editingFinished.emit()
+    window.count_group_spin.setValue(6)
+    assert window.project.count_origin == Fraction(-2)
+    assert window.project.default_count_group == 6
+    assert window.timeline_view.model.count_origin == Fraction(-2)
 
     window.bpm_edit.setText("118.75")
     window.bpm_edit.editingFinished.emit()

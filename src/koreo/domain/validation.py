@@ -49,6 +49,7 @@ def validate_project(project: Project) -> None:
     _check_timing("region", project.regions, issues)
     _check_timing("move", project.moves, issues)
     _check_region_hierarchy(project, issues)
+    _check_region_counts(project, issues)
     _check_region_overlaps(project, issues)
     _check_moves(project, issues)
     if issues:
@@ -140,7 +141,6 @@ def _check_region_hierarchy(project: Project, issues: list[ValidationIssue]) -> 
                     region.id,
                 )
             )
-
     for region in project.regions:
         visited = {region.id}
         cursor = region
@@ -170,6 +170,30 @@ def _check_region_hierarchy(project: Project, issues: list[ValidationIssue]) -> 
                 ValidationIssue(
                     "region_outside_parent",
                     f"Region {region.id!r} extends outside parent {parent.id!r}",
+                    region.id,
+                )
+            )
+
+
+def _check_region_counts(project: Project, issues: list[ValidationIssue]) -> None:
+    for region in project.regions:
+        if region.count_group is not None and (
+            isinstance(region.count_group, bool)
+            or not isinstance(region.count_group, int)
+            or region.count_group <= 0
+        ):
+            issues.append(
+                ValidationIssue(
+                    "invalid_region_count_group",
+                    f"Region {region.id!r} count_group must be a positive integer",
+                    region.id,
+                )
+            )
+        if not isinstance(region.count_restart, bool):
+            issues.append(
+                ValidationIssue(
+                    "invalid_region_count_restart",
+                    f"Region {region.id!r} count_restart must be boolean",
                     region.id,
                 )
             )
