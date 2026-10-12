@@ -30,8 +30,8 @@ with **Choose song…**.
    threshold must suppress click-to-seek and suspend Follow. Its button resumes
    it.
 6. Press **Stop** and confirm the position returns to the start.
-7. Seek or play to a musical `one`, then press **Set playhead as beat 0**.
-   Confirm a green Beat 0 marker appears and the faint BPM grid immediately
+7. Seek or play to a musical `one`, then press **Set playhead as grid anchor**.
+   Confirm a green Anchor marker appears and the faint BPM grid immediately
    shifts its offset to that waveform position.
 8. Optional: move later in the song, enter the continuous beat at that point
    (for example `128`), and press **Match beat to playhead**. Confirm the BPM

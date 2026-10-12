@@ -27,9 +27,13 @@ from koreo.domain.models import MusicalRegion, Project
 from koreo.domain.structure import (
     SECTION_PALETTE,
     StructureEditError,
+    add_block,
     append_section,
+    delete_block,
     delete_section,
     generate_aaba,
+    insert_section_after,
+    resize_block,
     update_section,
 )
 
@@ -45,13 +49,18 @@ class StructureCanvas(QWidget):
     rename_requested = Signal(str, str)
     color_requested = Signal(str, str)
     delete_requested = Signal(str)
+    insert_requested = Signal(str)
+    add_block_requested = Signal(str)
+    resize_block_requested = Signal(str, int)
+    delete_block_requested = Signal(str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
         self.selected_id: str | None = None
-        self._press: tuple[int, float] | None = None
+        self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
+        self.playhead_beat: Fraction | None = None
         self.setMouseTracking(True)
         self.setMinimumHeight(300)
 
@@ -77,16 +86,16 @@ class StructureCanvas(QWidget):
                 Qt.AlignmentFlag.AlignVCenter,
                 region.label,
             )
-            blocks = max(1, (region.duration.numerator + 7) // 8)
-            for block in range(blocks):
-                beats = min(Fraction(8), region.duration - block * 8)
+            blocks = self._blocks(region.id)
+            for block_index, block in enumerate(blocks):
+                beats = block.duration
                 rect = QRectF(
-                    _LABEL_WIDTH + block * 8 * _BEAT_WIDTH,
+                    _LABEL_WIDTH + float(block.start - region.start) * _BEAT_WIDTH,
                     y + 5,
                     float(beats) * _BEAT_WIDTH,
                     _ROW_HEIGHT - 10,
                 )
-                shade = base if block % 2 == 0 else base.lighter(118)
+                shade = base if block_index % 2 == 0 else base.lighter(118)
                 painter.fillRect(rect, shade)
                 painter.setPen(QPen(QColor("#64748b")))
                 painter.drawRect(rect)
@@ -94,6 +103,18 @@ class StructureCanvas(QWidget):
             if region.id == self.selected_id:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
                 painter.drawRect(QRectF(1, y + 1, self.width() - 2, _ROW_HEIGHT - 2))
+            if (
+                self.playhead_beat is not None
+                and region.start <= self.playhead_beat < region.end
+            ):
+                playhead_x = (
+                    _LABEL_WIDTH
+                    + float(self.playhead_beat - region.start) * _BEAT_WIDTH
+                )
+                painter.setPen(QPen(QColor("#dc2626"), 2))
+                painter.drawLine(
+                    int(playhead_x), y + 3, int(playhead_x), y + _ROW_HEIGHT - 3
+                )
         blank_y = len(self._rows()) * _ROW_HEIGHT
         painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
         painter.drawRect(
@@ -113,16 +134,28 @@ class StructureCanvas(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            row = int(event.position().y() // _ROW_HEIGHT)
+            rows = self._rows()
+            boundary_block: str | None = None
+            if row < len(rows):
+                for block in self._blocks(rows[row].id):
+                    endpoint = (
+                        _LABEL_WIDTH + float(block.end - rows[row].start) * _BEAT_WIDTH
+                    )
+                    if abs(event.position().x() - endpoint) <= 6:
+                        boundary_block = block.id
+                        break
             self._press = (
-                int(event.position().y() // _ROW_HEIGHT),
+                row,
                 event.position().x(),
+                boundary_block,
             )
             event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._press is None:
             return
-        row, start_x = self._press
+        row, start_x, block_id = self._press
         self._press = None
         rows = self._rows()
         if row >= len(rows):
@@ -134,11 +167,11 @@ class StructureCanvas(QWidget):
         region = rows[row]
         self.selected_id = region.id
         self.selected.emit(region.id)
-        if abs(event.position().x() - start_x) >= 6:
-            duration = max(
-                1, round((event.position().x() - _LABEL_WIDTH) / _BEAT_WIDTH)
-            )
-            self.resize_requested.emit(region.id, duration)
+        if block_id is not None and abs(event.position().x() - start_x) >= 2:
+            block = next(item for item in self.project.regions if item.id == block_id)
+            block_x = _LABEL_WIDTH + float(block.start - region.start) * _BEAT_WIDTH
+            duration = max(1, round((event.position().x() - block_x) / _BEAT_WIDTH))
+            self.resize_block_requested.emit(block.id, duration)
         self.update()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -158,8 +191,11 @@ class StructureCanvas(QWidget):
         row = int(event.position().y() // _ROW_HEIGHT)
         rows = self._rows()
         if row < len(rows):
-            endpoint = _LABEL_WIDTH + float(rows[row].duration) * _BEAT_WIDTH
-            if abs(event.position().x() - endpoint) <= 6:
+            endpoints = (
+                _LABEL_WIDTH + float(block.end - rows[row].start) * _BEAT_WIDTH
+                for block in self._blocks(rows[row].id)
+            )
+            if any(abs(event.position().x() - endpoint) <= 6 for endpoint in endpoints):
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
             else:
                 self.unsetCursor()
@@ -180,6 +216,13 @@ class StructureCanvas(QWidget):
         self.selected_id = region.id
         self.selected.emit(region.id)
         menu = QMenu(self)
+        insert_action = menu.addAction("Insert section below")
+        add_block_action = menu.addAction("Add 8-count block")
+        block = self._block_at(region, event.pos().x())
+        delete_block_action = None
+        if block is not None:
+            delete_block_action = menu.addAction("Delete this count block")
+        menu.addSeparator()
         color_menu = menu.addMenu("Section color")
         assert color_menu is not None
         for color in SECTION_PALETTE:
@@ -191,7 +234,14 @@ class StructureCanvas(QWidget):
         menu.addSeparator()
         delete_action = menu.addAction("Delete section")
         chosen = menu.exec(event.globalPos())
-        if chosen is delete_action:
+        if chosen is insert_action:
+            self.insert_requested.emit(region.id)
+        elif chosen is add_block_action:
+            self.add_block_requested.emit(region.id)
+        elif delete_block_action is not None and chosen is delete_block_action:
+            assert block is not None
+            self.delete_block_requested.emit(block.id)
+        elif chosen is delete_action:
             self.delete_requested.emit(region.id)
         event.accept()
 
@@ -224,9 +274,29 @@ class StructureCanvas(QWidget):
             )
         )
 
+    def _blocks(self, section_id: str) -> tuple[MusicalRegion, ...]:
+        return tuple(
+            sorted(
+                (r for r in self.project.regions if r.parent_id == section_id),
+                key=lambda r: (r.start, r.id),
+            )
+        )
+
+    def _block_at(self, section: MusicalRegion, x: int) -> MusicalRegion | None:
+        beat = section.start + Fraction(max(0, x - _LABEL_WIDTH), _BEAT_WIDTH)
+        return next(
+            (
+                block
+                for block in self._blocks(section.id)
+                if block.start <= beat < block.end
+            ),
+            None,
+        )
+
 
 class StructurePanel(QWidget):
     project_changed = Signal(object)
+    anchor_requested = Signal(str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -249,9 +319,12 @@ class StructurePanel(QWidget):
         self.template_duration.setValue(32)
         self.generate_button = QPushButton("Generate AABA")
         self.generate_button.clicked.connect(self._generate)
+        self.anchor_button = QPushButton("Anchor selected section at playhead")
+        self.anchor_button.clicked.connect(self._anchor_selected)
         generator.addWidget(QLabel("Section beats:"))
         generator.addWidget(self.template_duration)
         generator.addWidget(self.generate_button)
+        generator.addWidget(self.anchor_button)
         generator.addStretch(1)
         layout.addLayout(generator)
         self.canvas = StructureCanvas(project)
@@ -261,19 +334,25 @@ class StructurePanel(QWidget):
         self.canvas.rename_requested.connect(self._rename)
         self.canvas.color_requested.connect(self._recolor)
         self.canvas.delete_requested.connect(self._delete_id)
+        self.canvas.insert_requested.connect(self._insert)
+        self.canvas.add_block_requested.connect(self._add_block)
+        self.canvas.resize_block_requested.connect(self._resize_block)
+        self.canvas.delete_block_requested.connect(self._delete_block)
         layout.addWidget(self.canvas, 1)
         editor = QHBoxLayout()
         self.label_edit = QLineEdit()
         self.label_edit.setPlaceholderText("Selected section label")
         self.duration_edit = QSpinBox()
         self.duration_edit.setRange(1, 4096)
+        self.duration_edit.setReadOnly(True)
+        self.duration_edit.setToolTip("Derived from the section's count blocks")
         self.color_edit = QLineEdit("#bfdbfe")
         self.apply_button = QPushButton("Apply")
         self.apply_button.clicked.connect(self._apply)
         self.delete_button = QPushButton("Delete")
         self.delete_button.clicked.connect(self._delete)
         editor.addWidget(self.label_edit)
-        editor.addWidget(QLabel("Beats:"))
+        editor.addWidget(QLabel("Total beats:"))
         editor.addWidget(self.duration_edit)
         editor.addWidget(QLabel("Color:"))
         editor.addWidget(self.color_edit)
@@ -289,6 +368,10 @@ class StructurePanel(QWidget):
         self.project = project
         self.canvas.set_project(project)
 
+    def set_playhead_beat(self, beat: Fraction | None) -> None:
+        self.canvas.playhead_beat = beat
+        self.canvas.update()
+
     def _commit(self, project: Project) -> None:
         self.set_project(project)
         self.project_changed.emit(project)
@@ -298,6 +381,32 @@ class StructurePanel(QWidget):
 
     def _append(self, duration: int) -> None:
         self._commit(append_section(self.project, duration))
+
+    def _anchor_selected(self) -> None:
+        if self.canvas.selected_id is not None:
+            self.anchor_requested.emit(self.canvas.selected_id)
+
+    def _insert(self, section_id: str) -> None:
+        self._commit(
+            insert_section_after(
+                self.project, section_id, self.template_duration.value()
+            )
+        )
+
+    def _add_block(self, section_id: str) -> None:
+        self._commit(add_block(self.project, section_id))
+
+    def _resize_block(self, block_id: str, duration: int) -> None:
+        try:
+            self._commit(resize_block(self.project, block_id, duration))
+        except StructureEditError as error:
+            self.status.setText(str(error))
+
+    def _delete_block(self, block_id: str) -> None:
+        try:
+            self._commit(delete_block(self.project, block_id))
+        except StructureEditError as error:
+            self.status.setText(str(error))
 
     def _select(self, region_id: str) -> None:
         region = next(

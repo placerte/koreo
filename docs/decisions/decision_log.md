@@ -141,3 +141,19 @@ active handoff without changing its milestone boundary.
   meaningful structural regions instead of an isolated waveform.
 - **Impact:** Tap BPM remains approved. Anchor/refinement are not considered
   final and must be revisited during the structure milestone.
+
+## KOR-DEC-009 — Derive sections from blocks and anchor structure to media
+
+- **Date:** 2026-10-11
+- **Context:** Structure-board monkey testing refined internal block editing,
+  insertion ripple, and calibration against an identifiable musical one.
+- **Decision:** Count blocks are real child regions and a section is their
+  exact sum. Block edits and inserted sections ripple later structure. A
+  selected section start can become the grid Anchor at the current playhead;
+  earlier material is retained at negative backend beats. Calibrated structure
+  drives both its play cursor and faint waveform section backgrounds.
+- **Rationale:** Intros often contain fewer than four 8-count blocks, while a
+  recognizable later downbeat is frequently the safest alignment point.
+- **Impact:** The AABA template creates four 8-beat children per row. UI labels
+  use “Anchor,” not “beat 0.” Dancer-facing local counts never expose negative
+  backend coordinates.

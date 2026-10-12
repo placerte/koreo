@@ -46,7 +46,9 @@ def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
 
     window.structure_panel.generate_button.click()
 
-    assert [region.label for region in window.project.regions] == [
+    assert [
+        region.label for region in window.project.regions if region.parent_id is None
+    ] == [
         "Intro",
         "A",
         "A",
@@ -60,18 +62,23 @@ def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
     window.structure_panel._select(selected.id)
     window.structure_panel.canvas.selected_id = selected.id
     window.structure_panel.label_edit.setText("Opening")
-    window.structure_panel.duration_edit.setValue(16)
     window.structure_panel.color_edit.setText("#123456")
     window.structure_panel.apply_button.click()
 
-    assert window.project.regions[0].label == "Opening"
-    assert window.project.regions[0].duration == 16
-    assert window.project.regions[0].color == "#123456"
+    section = next(
+        region for region in window.project.regions if region.id == selected.id
+    )
+    assert section.label == "Opening"
+    assert section.duration == 32
+    assert section.color == "#123456"
 
     window.structure_panel.canvas.rename_requested.emit(selected.id, "Intro 2")
     window.structure_panel.canvas.color_requested.emit(selected.id, "#bbf7d0")
-    assert window.project.regions[0].label == "Intro 2"
-    assert window.project.regions[0].color == "#bbf7d0"
+    section = next(
+        region for region in window.project.regions if region.id == selected.id
+    )
+    assert section.label == "Intro 2"
+    assert section.color == "#bbf7d0"
 
     window.structure_panel.delete_button.click()
     assert all(region.id != selected.id for region in window.project.regions)
@@ -89,6 +96,23 @@ def test_structure_panel_scrolls_when_window_is_constrained(qtbot: QtBot) -> Non
     scroll_bar = window.structure_panel.scroll_area.verticalScrollBar()
     assert scroll_bar.maximum() > 0
     assert window.structure_panel.apply_button.parent() is not None
+
+
+def test_structure_section_can_become_calibrated_grid_anchor(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    window.structure_panel.generate_button.click()
+    sections = [r for r in window.project.regions if r.parent_id is None]
+
+    window._anchor_structure_section(sections[1].id)
+
+    rebased = [r for r in window.project.regions if r.parent_id is None]
+    assert rebased[0].start == -32
+    assert rebased[1].start == 0
+    assert window.project.calibration is not None
+    assert len(window.waveform.structure_bands) == 6
+    window._position_changed(0)
+    assert window.structure_panel.canvas.playhead_beat == 0
 
 
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:

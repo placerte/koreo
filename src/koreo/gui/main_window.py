@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from koreo.audio import AudioProbe, AudioSource, WaveformExtractor
 from koreo.domain.calibration import BeatCalibration, CalibrationError, parse_bpm
 from koreo.domain.models import Project
+from koreo.domain.structure import rebase_structure
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.sheet import SheetView
 from koreo.gui.structure_panel import StructurePanel
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         self.sheet_view = SheetView(build_sheet(project))
         self.structure_panel = StructurePanel(project)
         self.structure_panel.project_changed.connect(self._structure_project_changed)
+        self.structure_panel.anchor_requested.connect(self._anchor_structure_section)
         self.choose_song_button = QPushButton("Choose song…")
         self.choose_song_button.clicked.connect(self._choose_song)
         self.song_label = QLabel("No song selected")
@@ -155,9 +157,9 @@ class MainWindow(QMainWindow):
         self.follow_button.setToolTip("Keep the playhead at a fixed offset")
         self.follow_button.toggled.connect(self.waveform.set_follow_playhead)
         self.waveform.follow_changed.connect(self.follow_button.setChecked)
-        self.anchor_button = QPushButton("Set playhead as beat 0")
+        self.anchor_button = QPushButton("Set playhead as grid anchor")
         self.anchor_button.clicked.connect(self._set_anchor)
-        self.anchor_label = QLabel("Beat 0 not set")
+        self.anchor_label = QLabel("Grid anchor not set")
         self.refine_beat_edit = QLineEdit()
         self.refine_beat_edit.setPlaceholderText("Later beat, e.g. 128")
         self.refine_beat_edit.setMaximumWidth(150)
@@ -234,7 +236,7 @@ class MainWindow(QMainWindow):
         self.waveform.set_anchor(None)
         self.waveform.zoom_to_fit()
         self.waveform.set_follow_playhead(True)
-        self.anchor_label.setText("Beat 0 not set")
+        self.anchor_label.setText("Grid anchor not set")
         self.refine_button.setEnabled(False)
         self.song_label.setText(
             f"{source.display_name} — {source.sample_rate} Hz, "
@@ -307,6 +309,26 @@ class MainWindow(QMainWindow):
         assert isinstance(project, Project)
         self.project = project
         self._refresh_count_views()
+        self._refresh_structure_mapping()
+
+    def _anchor_structure_section(self, region_id: str) -> None:
+        section = next(
+            region for region in self.project.regions if region.id == region_id
+        )
+        self.project = rebase_structure(self.project, section.start)
+        anchor_ms = self.playback.position
+        self.project = replace(
+            self.project,
+            calibration=BeatCalibration(
+                bpm=self.tempo_bpm,
+                anchor_seconds=Fraction(anchor_ms, 1000),
+            ),
+        )
+        self.waveform.set_anchor(anchor_ms)
+        self.anchor_label.setText(f"Grid anchor at {_format_ms(anchor_ms)}")
+        self.refine_button.setEnabled(True)
+        self._refresh_count_views()
+        self._refresh_structure_mapping()
 
     def _toggle_playback(self) -> None:
         if self.playback.is_playing:
@@ -318,6 +340,12 @@ class MainWindow(QMainWindow):
         if not self.seek_slider.isSliderDown():
             self.seek_slider.setValue(position_ms)
         self.waveform.set_position(position_ms)
+        if self.project.calibration is None:
+            self.structure_panel.set_playhead_beat(None)
+        else:
+            self.structure_panel.set_playhead_beat(
+                self.project.calibration.beat_at(Fraction(position_ms, 1000))
+            )
         self.time_label.setText(
             f"{_format_ms(position_ms)} / {_format_ms(self.playback.duration)}"
         )
@@ -354,8 +382,9 @@ class MainWindow(QMainWindow):
         )
         self.project = replace(self.project, calibration=calibration)
         self.waveform.set_anchor(anchor_ms)
-        self.anchor_label.setText(f"Beat 0 at {_format_ms(anchor_ms)}")
+        self.anchor_label.setText(f"Grid anchor at {_format_ms(anchor_ms)}")
         self.refine_button.setEnabled(True)
+        self._refresh_structure_mapping()
 
     def _set_calibration_point(self) -> None:
         if self.project.calibration is None:
@@ -373,9 +402,10 @@ class MainWindow(QMainWindow):
         self.waveform.set_bpm(float(self.tempo_bpm))
         self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
         self.anchor_label.setText(
-            f"Beat 0 at {_format_ms(int(calibration.anchor_seconds * 1000))}; "
+            f"Grid anchor at {_format_ms(int(calibration.anchor_seconds * 1000))}; "
             f"beat {beat} matched"
         )
+        self._refresh_structure_mapping()
 
     def _update_calibration_bpm(self) -> None:
         if self.project.calibration is not None:
@@ -383,6 +413,23 @@ class MainWindow(QMainWindow):
                 self.project,
                 calibration=self.project.calibration.with_bpm(self.tempo_bpm),
             )
+            self._refresh_structure_mapping()
+
+    def _refresh_structure_mapping(self) -> None:
+        calibration = self.project.calibration
+        if calibration is None:
+            self.waveform.set_structure_bands(())
+            return
+        bands = tuple(
+            (
+                round(calibration.seconds_at(region.start) * 1000),
+                round(calibration.seconds_at(region.end) * 1000),
+                region.color or "#bfdbfe",
+            )
+            for region in self.project.regions
+            if region.parent_id is None
+        )
+        self.waveform.set_structure_bands(bands)
 
 
 def _format_ms(milliseconds: int) -> str:

@@ -2,7 +2,7 @@
 
 import math
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtCore import Signal
 from PySide6.QtGui import (
     QColor,
@@ -34,6 +34,7 @@ class WaveformWidget(QWidget):
         self.zoom_factor = 1.0
         self.view_start_ms = 0.0
         self.follow_playhead = True
+        self.structure_bands: tuple[tuple[int, int, str], ...] = ()
         self._press_x: float | None = None
         self._pan_x: float | None = None
         self._dragging = False
@@ -66,6 +67,12 @@ class WaveformWidget(QWidget):
         if bpm > 0:
             self.bpm = bpm
             self.update()
+
+    def set_structure_bands(self, bands: tuple[tuple[int, int, str], ...]) -> None:
+        """Set calibrated top-level section backgrounds in media time."""
+
+        self.structure_bands = bands
+        self.update()
 
     def set_follow_playhead(self, enabled: bool) -> None:
         """Enable or suspend automatic waveform scrolling."""
@@ -167,6 +174,7 @@ class WaveformWidget(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#f8fafc"))
         center = self.height() / 2
+        self._paint_structure_bands(painter)
         self._paint_beat_grid(painter)
         painter.setPen(QPen(QColor("#94a3b8"), 1))
         painter.drawLine(0, int(center), self.width(), int(center))
@@ -196,12 +204,25 @@ class WaveformWidget(QWidget):
                 anchor_x = self._time_to_x(self.anchor_ms)
                 painter.setPen(QPen(QColor("#16a34a"), 3))
                 painter.drawLine(int(anchor_x), 0, int(anchor_x), self.height())
-                painter.drawText(int(anchor_x) + 5, 16, "Beat 0")
+                painter.drawText(int(anchor_x) + 5, 16, "Anchor")
             if self._is_visible(self.position_ms):
                 playhead_x = self._time_to_x(self.position_ms)
                 painter.setPen(QPen(QColor("#dc2626"), 2))
                 painter.drawLine(int(playhead_x), 0, int(playhead_x), self.height())
         painter.end()
+
+    def _paint_structure_bands(self, painter: QPainter) -> None:
+        for start_ms, end_ms, color in self.structure_bands:
+            if (
+                end_ms < self.view_start_ms
+                or start_ms > self.view_start_ms + self.visible_duration_ms
+            ):
+                continue
+            left = self._time_to_x(start_ms)
+            right = self._time_to_x(end_ms)
+            shade = QColor(color)
+            shade.setAlpha(35)
+            painter.fillRect(QRectF(left, 0, right - left, self.height()), shade)
 
     def _paint_beat_grid(self, painter: QPainter) -> None:
         if self.duration_ms <= 0 or self.bpm <= 0:

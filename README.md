@@ -105,11 +105,12 @@ discards the tap session. Key auto-repeat is ignored and three seconds of
 inactivity starts a new tapping session.
 
 Open the **Structure** tab and choose **Generate AABA** to create the approved
-`Intro, A, A, B, A, Outro` starter. Select a row to edit its label, exact beat
-duration, or base color. Drag across a row to resize it, drag on the persistent
-blank row to append a section, and use **Delete** to remove the selected row.
-This review slice deliberately leaves gaps visible and does not ripple later
-sections.
+`Intro, A, A, B, A, Outro` starter. Each section begins with real 8-beat child
+blocks; resize their edges or use the row context menu to add/delete blocks and
+insert sections. Section totals are derived from their children, and timing
+changes ripple later rows. A selected section start can become the waveform
+grid Anchor, after which the Structure play cursor and waveform backgrounds
+share the calibrated mapping.
 
 Run the complete automated checks:
 

@@ -48,15 +48,16 @@ revises them.
 - While extracting, show an indeterminate `Processing song…` state.
 - The waveform remains dynamically rendered from approximately 10 ms min/max
   peak windows rather than a pre-scaled image.
-- A faint constant-tempo beat grid appears behind the waveform. Before an
-  anchor exists it starts at media time zero; setting beat 0 shifts it
-  immediately to the anchor.
+- A faint constant-tempo beat grid appears behind the waveform. Before a grid
+  Anchor exists it starts at media time zero; setting the Anchor shifts it
+  immediately to that media position.
 - A plain left click seeks to the clicked media time.
 - A left drag pans after crossing the platform drag threshold. A completed pan
   must not also seek on release. Middle-button panning is not used.
 - Wheel zoom is centered under the pointer. Zoom in, zoom out, and fit controls
   are also available.
-- Waveform, beat grid, anchor, and playhead always use the same time transform.
+- Waveform, beat grid, Anchor, structure backgrounds, and playhead always use
+  the same time transform.
 - Follow mode holds the playhead near 35% of the viewport while zoomed and
   moves the waveform beneath it. Wheel zoom or drag-pan suspends Follow; an
   explicit control resumes it.
@@ -65,7 +66,9 @@ revises them.
 
 - Anchor and optional later-point refinement belong in the waveform-backed
   song-structure workflow, not the Tap BPM modal.
-- Final calibration UX is deferred until song-structure authoring exists.
+- The waveform may set a provisional grid Anchor. In Structure, anchoring a
+  selected section start at the playhead also establishes the structural
+  origin and is the preferred final workflow.
 
 ## Song structure panel
 
@@ -82,6 +85,16 @@ revises them.
   click. Hovering the section endpoint shows a horizontal-resize cursor.
 - Right-clicking a section selects it and exposes palette colors and deletion
   in a contextual menu.
+- Each visible count block is a real child region. The section total is the
+  sum of its children; adding, deleting, or resizing a child ripples all later
+  sections by the exact duration delta.
+- Right-click supports inserting a new top-level section below the selected
+  row, shifting every later row forward.
+- A selected section start can become the grid **Anchor** at the current media
+  playhead. Earlier structure remains available at negative backend beats,
+  while dancer-facing local counts continue as ordinary 1–8 counts.
+- When calibrated, a play cursor traverses the structure blocks and section
+  colors form faint aligned backgrounds behind the waveform.
 - The complete Structure workspace scrolls vertically when waveform or window
   height leaves too little room; controls must never overlap the section grid.
 - Variable lengths and incomplete blocks are valid. Visual centering of short
