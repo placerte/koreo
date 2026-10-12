@@ -40,3 +40,19 @@ active handoff without changing its milestone boundary.
 - **Impact:** The main window enables Tap BPM only after a song validates and
   owns manual BPM entry. The modal owns its temporary media player and always
   stops it on exit.
+
+## KOR-DEC-003 — Stabilize dynamic time-label geometry
+
+- **Date:** 2026-10-11
+- **Context:** Human review of the Tap BPM modal found that a changing current
+  time made the label text visibly jiggle even after the neighboring playhead
+  width had been stabilized.
+- **Decision:** Every dynamic time label must reserve a width based on its
+  longest expected representation and use deliberate alignment. For the
+  common `current / duration` form, use a fixed-width, right-aligned label so
+  the duration remains anchored and current-time digits grow leftward.
+- **Rationale:** Playback updates should not move the label itself, adjacent
+  playheads, buttons, or other neighboring UI components.
+- **Impact:** Reuse this rule for main transport, waveform, calibration,
+  preview, and export-progress time displays. Tests should verify fixed
+  geometry and alignment where practical.
