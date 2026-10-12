@@ -98,18 +98,29 @@ def test_structure_panel_scrolls_when_window_is_constrained(qtbot: QtBot) -> Non
     assert window.structure_panel.apply_button.parent() is not None
 
 
-def test_structure_section_can_become_calibrated_grid_anchor(qtbot: QtBot) -> None:
+def test_structure_block_aligns_to_existing_waveform_anchor(qtbot: QtBot) -> None:
     window = MainWindow(representative_project())
     qtbot.addWidget(window)
     window.structure_panel.generate_button.click()
     sections = [r for r in window.project.regions if r.parent_id is None]
+    first_a_block = next(
+        region
+        for region in window.project.regions
+        if region.parent_id == sections[1].id
+    )
+    window._set_anchor()
+    assert window.project.calibration is not None
+    original_anchor_seconds = window.project.calibration.anchor_seconds
+    original_anchor_ms = window.waveform.anchor_ms
 
-    window._anchor_structure_section(sections[1].id)
+    window._anchor_structure_block(first_a_block.id)
 
     rebased = [r for r in window.project.regions if r.parent_id is None]
     assert rebased[0].start == -32
     assert rebased[1].start == 0
     assert window.project.calibration is not None
+    assert window.project.calibration.anchor_seconds == original_anchor_seconds
+    assert window.waveform.anchor_ms == original_anchor_ms
     assert len(window.waveform.structure_bands) == 6
     window._position_changed(0)
     assert window.structure_panel.canvas.playhead_beat == 0

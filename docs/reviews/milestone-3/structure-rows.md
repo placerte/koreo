@@ -33,10 +33,11 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
 9. Reduce the window height while the waveform is visible. The Structure tab
    should gain a vertical scrollbar, with its editor controls remaining below
    the grid instead of overlapping it.
-10. Select the first `A`, move the waveform playhead to its recognizable one,
-    and click **Anchor selected section at playhead**. Confirm the Intro stays
-    visible, a red play cursor traverses the blocks, and section colors appear
-    faintly behind the waveform.
+10. Set the grid Anchor on the waveform at a recognizable musical one. Then
+    select the exact Structure block that starts there and click **Align
+    selected block to grid Anchor**. Confirm the waveform Anchor does not
+    move, the Intro stays visible, a red play cursor traverses the blocks, and
+    section colors appear faintly behind the waveform.
 
 ## Deliberate boundary
 

@@ -157,3 +157,19 @@ active handoff without changing its milestone boundary.
 - **Impact:** The AABA template creates four 8-beat children per row. UI labels
   use “Anchor,” not “beat 0.” Dancer-facing local counts never expose negative
   backend coordinates.
+
+## KOR-DEC-010 — Waveform Anchor is authoritative
+
+- **Date:** 2026-10-12
+- **Context:** The first structure-calibration implementation let a selected
+  section reset the Anchor to the current playhead, reversing the intended
+  ownership and lacking exact child-block selection.
+- **Decision:** Only the waveform controls the Anchor media time. The Structure
+  board selects an exact child block and declares that its start corresponds
+  to the existing Anchor. This operation rebases structure beat coordinates
+  but must never change the calibration's anchor time or waveform marker.
+- **Rationale:** Media alignment is established against the waveform first;
+  structure describes which musical boundary occurs there.
+- **Impact:** Structure alignment requires an existing waveform Anchor and is
+  available through block selection and the block context menu. Regression
+  tests preserve the exact anchor timestamp and marker position.

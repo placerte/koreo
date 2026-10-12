@@ -90,9 +90,11 @@ revises them.
   sections by the exact duration delta.
 - Right-click supports inserting a new top-level section below the selected
   row, shifting every later row forward.
-- A selected section start can become the grid **Anchor** at the current media
-  playhead. Earlier structure remains available at negative backend beats,
-  while dancer-facing local counts continue as ordinary 1–8 counts.
+- The waveform is the sole source of truth for the grid **Anchor** media time.
+  Selecting an exact block on the Structure board and aligning it to the
+  Anchor rebases only structure beat coordinates; it never moves the waveform
+  Anchor. Earlier structure remains available at negative backend beats, while
+  dancer-facing local counts continue as ordinary 1–8 counts.
 - When calibrated, a play cursor traverses the structure blocks and section
   colors form faint aligned backgrounds behind the waveform.
 - The complete Structure workspace scrolls vertically when waveform or window

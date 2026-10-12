@@ -66,7 +66,9 @@ class MainWindow(QMainWindow):
         self.sheet_view = SheetView(build_sheet(project))
         self.structure_panel = StructurePanel(project)
         self.structure_panel.project_changed.connect(self._structure_project_changed)
-        self.structure_panel.anchor_requested.connect(self._anchor_structure_section)
+        self.structure_panel.anchor_block_requested.connect(
+            self._anchor_structure_block
+        )
         self.choose_song_button = QPushButton("Choose song…")
         self.choose_song_button.clicked.connect(self._choose_song)
         self.song_label = QLabel("No song selected")
@@ -311,22 +313,19 @@ class MainWindow(QMainWindow):
         self._refresh_count_views()
         self._refresh_structure_mapping()
 
-    def _anchor_structure_section(self, region_id: str) -> None:
-        section = next(
-            region for region in self.project.regions if region.id == region_id
-        )
-        self.project = rebase_structure(self.project, section.start)
-        anchor_ms = self.playback.position
-        self.project = replace(
-            self.project,
-            calibration=BeatCalibration(
-                bpm=self.tempo_bpm,
-                anchor_seconds=Fraction(anchor_ms, 1000),
-            ),
-        )
-        self.waveform.set_anchor(anchor_ms)
-        self.anchor_label.setText(f"Grid anchor at {_format_ms(anchor_ms)}")
-        self.refine_button.setEnabled(True)
+    def _anchor_structure_block(self, block_id: str) -> None:
+        calibration = self.project.calibration
+        if calibration is None:
+            self.structure_panel.status.setText(
+                "Set the grid Anchor on the waveform first."
+            )
+            return
+        block = next(region for region in self.project.regions if region.id == block_id)
+        anchor_seconds = calibration.anchor_seconds
+        self.project = rebase_structure(self.project, block.start)
+        assert self.project.calibration is not None
+        assert self.project.calibration.anchor_seconds == anchor_seconds
+        self.structure_panel.status.setText("Selected block starts at the grid Anchor.")
         self._refresh_count_views()
         self._refresh_structure_mapping()
 

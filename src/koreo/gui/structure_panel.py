@@ -53,11 +53,13 @@ class StructureCanvas(QWidget):
     add_block_requested = Signal(str)
     resize_block_requested = Signal(str, int)
     delete_block_requested = Signal(str)
+    anchor_block_requested = Signal(str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
         self.selected_id: str | None = None
+        self.selected_block_id: str | None = None
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
         self.playhead_beat: Fraction | None = None
@@ -100,6 +102,9 @@ class StructureCanvas(QWidget):
                 painter.setPen(QPen(QColor("#64748b")))
                 painter.drawRect(rect)
                 painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(beats))
+                if block.id == self.selected_block_id:
+                    painter.setPen(QPen(QColor("#2563eb"), 3))
+                    painter.drawRect(rect.adjusted(2, 2, -2, -2))
             if region.id == self.selected_id:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
                 painter.drawRect(QRectF(1, y + 1, self.width() - 2, _ROW_HEIGHT - 2))
@@ -166,6 +171,8 @@ class StructureCanvas(QWidget):
             return
         region = rows[row]
         self.selected_id = region.id
+        clicked_block = self._block_at(region, round(event.position().x()))
+        self.selected_block_id = clicked_block.id if clicked_block is not None else None
         self.selected.emit(region.id)
         if block_id is not None and abs(event.position().x() - start_x) >= 2:
             block = next(item for item in self.project.regions if item.id == block_id)
@@ -219,8 +226,11 @@ class StructureCanvas(QWidget):
         insert_action = menu.addAction("Insert section below")
         add_block_action = menu.addAction("Add 8-count block")
         block = self._block_at(region, event.pos().x())
+        anchor_action = None
         delete_block_action = None
         if block is not None:
+            self.selected_block_id = block.id
+            anchor_action = menu.addAction("Align this block start to grid Anchor")
             delete_block_action = menu.addAction("Delete this count block")
         menu.addSeparator()
         color_menu = menu.addMenu("Section color")
@@ -238,6 +248,9 @@ class StructureCanvas(QWidget):
             self.insert_requested.emit(region.id)
         elif chosen is add_block_action:
             self.add_block_requested.emit(region.id)
+        elif anchor_action is not None and chosen is anchor_action:
+            assert block is not None
+            self.anchor_block_requested.emit(block.id)
         elif delete_block_action is not None and chosen is delete_block_action:
             assert block is not None
             self.delete_block_requested.emit(block.id)
@@ -296,7 +309,7 @@ class StructureCanvas(QWidget):
 
 class StructurePanel(QWidget):
     project_changed = Signal(object)
-    anchor_requested = Signal(str)
+    anchor_block_requested = Signal(str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -319,7 +332,7 @@ class StructurePanel(QWidget):
         self.template_duration.setValue(32)
         self.generate_button = QPushButton("Generate AABA")
         self.generate_button.clicked.connect(self._generate)
-        self.anchor_button = QPushButton("Anchor selected section at playhead")
+        self.anchor_button = QPushButton("Align selected block to grid Anchor")
         self.anchor_button.clicked.connect(self._anchor_selected)
         generator.addWidget(QLabel("Section beats:"))
         generator.addWidget(self.template_duration)
@@ -338,6 +351,7 @@ class StructurePanel(QWidget):
         self.canvas.add_block_requested.connect(self._add_block)
         self.canvas.resize_block_requested.connect(self._resize_block)
         self.canvas.delete_block_requested.connect(self._delete_block)
+        self.canvas.anchor_block_requested.connect(self.anchor_block_requested)
         layout.addWidget(self.canvas, 1)
         editor = QHBoxLayout()
         self.label_edit = QLineEdit()
@@ -383,8 +397,10 @@ class StructurePanel(QWidget):
         self._commit(append_section(self.project, duration))
 
     def _anchor_selected(self) -> None:
-        if self.canvas.selected_id is not None:
-            self.anchor_requested.emit(self.canvas.selected_id)
+        if self.canvas.selected_block_id is None:
+            self.status.setText("Select a count block first.")
+            return
+        self.anchor_block_requested.emit(self.canvas.selected_block_id)
 
     def _insert(self, section_id: str) -> None:
         self._commit(

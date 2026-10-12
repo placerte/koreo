@@ -108,9 +108,10 @@ Open the **Structure** tab and choose **Generate AABA** to create the approved
 `Intro, A, A, B, A, Outro` starter. Each section begins with real 8-beat child
 blocks; resize their edges or use the row context menu to add/delete blocks and
 insert sections. Section totals are derived from their children, and timing
-changes ripple later rows. A selected section start can become the waveform
-grid Anchor, after which the Structure play cursor and waveform backgrounds
-share the calibrated mapping.
+changes ripple later rows. After setting the waveform grid Anchor, select the
+exact Structure block that starts there and align it without moving the
+waveform Anchor. The Structure play cursor and waveform backgrounds then share
+the calibrated mapping.
 
 Run the complete automated checks:
 
