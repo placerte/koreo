@@ -1,8 +1,10 @@
-"""Application shell sharing one project and session between two views."""
+"""Application shell sharing one project and playback session between views."""
 
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -10,17 +12,20 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from koreo.audio import AudioProbe, AudioSource
-from koreo.domain.calibration import CalibrationError, parse_bpm
+from koreo.audio import AudioProbe, AudioSource, WaveformExtractor
+from koreo.domain.calibration import BeatCalibration, CalibrationError, parse_bpm
 from koreo.domain.models import Project
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.sheet import SheetView
 from koreo.gui.timeline import TimelineView
+from koreo.gui.waveform import WaveformWidget
+from koreo.playback import PlaybackController
 from koreo.presentation.mapping import build_sheet, build_timeline
 
 
@@ -37,6 +42,14 @@ class MainWindow(QMainWindow):
         self._probe = AudioProbe(self)
         self._probe.succeeded.connect(self._audio_ready)
         self._probe.failed.connect(self._audio_failed)
+        self._waveform_extractor = WaveformExtractor(self)
+        self._waveform_extractor.succeeded.connect(self._waveform_ready)
+        self._waveform_extractor.failed.connect(self._waveform_failed)
+        self.playback = PlaybackController(self)
+        self.playback.position_changed.connect(self._position_changed)
+        self.playback.duration_changed.connect(self._duration_changed)
+        self.playback.state_changed.connect(self._playback_state_changed)
+        self.playback.failed.connect(self._playback_failed)
         self.timeline_view = TimelineView(build_timeline(project))
         self.sheet_view = SheetView(build_sheet(project))
         self.choose_song_button = QPushButton("Choose song…")
@@ -58,6 +71,50 @@ class MainWindow(QMainWindow):
         song_bar.addWidget(self.bpm_edit)
         song_bar.addWidget(self.tap_bpm_button)
 
+        self.transport = QWidget()
+        transport_layout = QVBoxLayout(self.transport)
+        transport_layout.setContentsMargins(0, 0, 0, 0)
+        controls = QHBoxLayout()
+        self.play_button = QPushButton("Play")
+        self.play_button.clicked.connect(self._toggle_playback)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.playback.stop)
+        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.sliderMoved.connect(self.playback.seek)
+        self.time_label = QLabel("0:00.000 / 0:00.000")
+        self.time_label.setFixedWidth(
+            self.time_label.fontMetrics().horizontalAdvance("99:59.999 / 99:59.999")
+        )
+        self.time_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        controls.addWidget(self.play_button)
+        controls.addWidget(self.stop_button)
+        controls.addWidget(self.seek_slider, 1)
+        controls.addWidget(self.time_label)
+        transport_layout.addLayout(controls)
+
+        self.waveform = WaveformWidget()
+        transport_layout.addWidget(self.waveform)
+        calibration_controls = QHBoxLayout()
+        self.anchor_button = QPushButton("Set playhead as beat 0")
+        self.anchor_button.clicked.connect(self._set_anchor)
+        self.anchor_label = QLabel("Beat 0 not set")
+        self.refine_beat_edit = QLineEdit()
+        self.refine_beat_edit.setPlaceholderText("Later beat, e.g. 128")
+        self.refine_beat_edit.setMaximumWidth(150)
+        self.refine_button = QPushButton("Match beat to playhead")
+        self.refine_button.setEnabled(False)
+        self.refine_button.clicked.connect(self._set_calibration_point)
+        calibration_controls.addWidget(self.anchor_button)
+        calibration_controls.addWidget(self.anchor_label)
+        calibration_controls.addStretch(1)
+        calibration_controls.addWidget(self.refine_beat_edit)
+        calibration_controls.addWidget(self.refine_button)
+        transport_layout.addLayout(calibration_controls)
+        self.transport.setVisible(False)
+
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Project view selector")
         self.tabs.addTab(self.timeline_view, "Timeline")
@@ -65,6 +122,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(song_bar)
+        layout.addWidget(self.transport)
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
         self.setWindowTitle(f"Koreo — {project.name}")
@@ -87,12 +145,21 @@ class MainWindow(QMainWindow):
     def _audio_ready(self, source: object) -> None:
         assert isinstance(source, AudioSource)
         self.audio_source = source
+        self.project = replace(self.project, calibration=None)
+        self.waveform.set_peaks(())
+        self.waveform.set_anchor(None)
+        self.anchor_label.setText("Beat 0 not set")
+        self.refine_button.setEnabled(False)
         self.song_label.setText(
             f"{source.display_name} — {source.sample_rate} Hz, "
             f"{source.channel_count} channel(s)"
         )
         self.choose_song_button.setEnabled(True)
         self.tap_bpm_button.setEnabled(True)
+        self.transport.setVisible(True)
+        self.playback.load(source.path)
+        self._waveform_extractor.extract(source.path)
+        self.song_label.setText(f"{self.song_label.text()} · building waveform…")
 
     def _audio_failed(self, message: str) -> None:
         if self.audio_source is None:
@@ -112,11 +179,92 @@ class MainWindow(QMainWindow):
             self.bpm_edit.setText(
                 f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
             )
+            self._update_calibration_bpm()
 
     def _manual_bpm_changed(self) -> None:
         try:
             self.tempo_bpm = parse_bpm(self.bpm_edit.text())
+            self._update_calibration_bpm()
         except CalibrationError:
             self.bpm_edit.setText(
                 f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
             )
+
+    def _toggle_playback(self) -> None:
+        if self.playback.is_playing:
+            self.playback.pause()
+        else:
+            self.playback.play()
+
+    def _position_changed(self, position_ms: int) -> None:
+        if not self.seek_slider.isSliderDown():
+            self.seek_slider.setValue(position_ms)
+        self.waveform.set_position(position_ms)
+        self.time_label.setText(
+            f"{_format_ms(position_ms)} / {_format_ms(self.playback.duration)}"
+        )
+
+    def _duration_changed(self, duration_ms: int) -> None:
+        self.seek_slider.setMaximum(max(duration_ms, 0))
+        self.waveform.set_duration(duration_ms)
+        self._position_changed(self.playback.position)
+
+    def _playback_state_changed(self, state: str) -> None:
+        self.play_button.setText("Pause" if state == "playing" else "Play")
+
+    def _playback_failed(self, message: str) -> None:
+        self.song_label.setText(f"Playback error: {message}")
+
+    def _waveform_ready(self, peaks: object) -> None:
+        assert isinstance(peaks, tuple)
+        self.waveform.set_peaks(peaks)
+        if self.audio_source is not None:
+            self.song_label.setText(
+                f"{self.audio_source.display_name} — waveform ready"
+            )
+
+    def _waveform_failed(self, message: str) -> None:
+        self.song_label.setText(message)
+
+    def _set_anchor(self) -> None:
+        anchor_ms = self.playback.position
+        calibration = BeatCalibration(
+            bpm=self.tempo_bpm,
+            anchor_seconds=Fraction(anchor_ms, 1000),
+        )
+        self.project = replace(self.project, calibration=calibration)
+        self.waveform.set_anchor(anchor_ms)
+        self.anchor_label.setText(f"Beat 0 at {_format_ms(anchor_ms)}")
+        self.refine_button.setEnabled(True)
+
+    def _set_calibration_point(self) -> None:
+        if self.project.calibration is None:
+            return
+        try:
+            beat = Fraction(self.refine_beat_edit.text().strip())
+            calibration = self.project.calibration.with_calibration_point(
+                beat, Fraction(self.playback.position, 1000)
+            )
+        except (ValueError, ZeroDivisionError, CalibrationError) as error:
+            self.anchor_label.setText(f"Refinement rejected: {error}")
+            return
+        self.project = replace(self.project, calibration=calibration)
+        self.tempo_bpm = calibration.bpm
+        self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
+        self.anchor_label.setText(
+            f"Beat 0 at {_format_ms(int(calibration.anchor_seconds * 1000))}; "
+            f"beat {beat} matched"
+        )
+
+    def _update_calibration_bpm(self) -> None:
+        if self.project.calibration is not None:
+            self.project = replace(
+                self.project,
+                calibration=self.project.calibration.with_bpm(self.tempo_bpm),
+            )
+
+
+def _format_ms(milliseconds: int) -> str:
+    minutes, remainder = divmod(max(milliseconds, 0), 60_000)
+    seconds, millis = divmod(remainder, 1000)
+    return f"{minutes}:{seconds:02d}.{millis:03d}"

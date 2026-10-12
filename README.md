@@ -116,8 +116,9 @@ QT_QPA_PLATFORM=offscreen uv run python scripts/capture_screenshots.py
 ```
 
 The editor views remain read-only while Milestone 2 is in progress. Playback,
-waveform-backed anchor/refinement controls, and playheads inside the editor
-views are still pending.
+seeking, waveform display, and waveform-context anchor/refinement controls are
+available in the main window. Integration of the calibrated grid and shared
+playhead directly into both editor canvases is still pending.
 
 ## Project artifacts
 

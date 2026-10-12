@@ -1,13 +1,13 @@
 """Tests for the Qt audio validation boundary."""
 
-# [GH-13] [S-M2-01] [T-M2-05]
+# [GH-13] [GH-14] [S-M2-01] [S-M2-05] [T-M2-05] [T-M2-07]
 
 import wave
 from pathlib import Path
 
 from pytestqt.qtbot import QtBot
 
-from koreo.audio import AudioProbe, AudioSource
+from koreo.audio import AudioProbe, AudioSource, WaveformExtractor
 
 
 def _write_silent_wav(path: Path) -> None:
@@ -49,3 +49,19 @@ def test_probe_rejects_an_empty_or_wrong_extension(
 
     assert "empty" in empty_result.args[0]
     assert "MP3 or WAV" in extension_result.args[0]
+
+
+def test_real_qt_decoder_extracts_bounded_waveform_peaks(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    path = tmp_path / "waveform.wav"
+    _write_silent_wav(path)
+    extractor = WaveformExtractor()
+
+    with qtbot.waitSignal(extractor.succeeded, timeout=5_000) as result:
+        extractor.extract(path)
+
+    peaks = result.args[0]
+    assert peaks
+    assert len(peaks) <= 1_200
+    assert all(-1.0 <= minimum <= maximum <= 1.0 for minimum, maximum in peaks)

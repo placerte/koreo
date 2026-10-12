@@ -96,3 +96,21 @@ def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
     window.bpm_edit.setText("not a tempo")
     window.bpm_edit.editingFinished.emit()
     assert window.bpm_edit.text() == "118.75"
+
+
+def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    window.transport.setVisible(True)
+    window.waveform.set_duration(60_000)
+    window.waveform.set_peaks(((-0.5, 0.75), (-1.0, 1.0), (-0.25, 0.4)))
+    window._position_changed(15_000)
+    window._set_anchor()
+
+    image = window.waveform.grab().toImage()
+    assert not image.isNull()
+    assert window.time_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert window.time_label.minimumWidth() == window.time_label.maximumWidth()
+    assert window.project.calibration is not None
+    assert window.project.calibration.anchor_seconds == Fraction(0)
+    assert window.waveform.anchor_ms == 0
