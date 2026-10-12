@@ -27,6 +27,7 @@ class LoadedProject:
     project: Project
     tempo_bpm: Fraction
     audio_source: AudioSource | None
+    waveform_peaks: tuple[tuple[float, float], ...] = ()
 
 
 def save_project(
@@ -34,6 +35,7 @@ def save_project(
     project: Project,
     tempo_bpm: Fraction,
     audio_source: AudioSource | None,
+    waveform_peaks: tuple[tuple[float, float], ...] = (),
 ) -> None:
     """Atomically save a self-contained ``.kro`` archive."""
 
@@ -45,7 +47,8 @@ def save_project(
         if not audio_source.path.is_file():
             raise ProjectFileError("The selected audio file is no longer available.")
         audio_member = f"audio/{_safe_name(audio_source.display_name)}"
-    metadata = _encode(project, tempo_bpm, audio_source, audio_member)
+    waveform_member = "waveform.json" if waveform_peaks else None
+    metadata = _encode(project, tempo_bpm, audio_source, audio_member, waveform_member)
     descriptor, temporary_name = tempfile.mkstemp(
         dir=destination.parent,
         prefix=f".{destination.name}.",
@@ -60,6 +63,12 @@ def save_project(
             )
             if audio_source is not None and audio_member is not None:
                 archive.write(audio_source.path, audio_member, ZIP_STORED)
+            if waveform_member is not None:
+                archive.writestr(
+                    waveform_member,
+                    json.dumps(waveform_peaks, separators=(",", ":")),
+                    ZIP_DEFLATED,
+                )
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
@@ -87,6 +96,17 @@ def load_project(path: Path, extraction_root: Path) -> LoadedProject:
             except KeyError as error:
                 raise ProjectFileError("Project metadata is missing.") from error
             loaded = _decode(raw)
+            waveform_member = raw.get("waveform_member")
+            if waveform_member is not None:
+                if waveform_member not in archive.namelist():
+                    raise ProjectFileError("Saved waveform cache is missing.")
+                waveform_raw = json.loads(archive.read(waveform_member))
+                if not isinstance(waveform_raw, list):
+                    raise ProjectFileError("Saved waveform cache is invalid.")
+                peaks = _decode_peaks(waveform_raw)
+                loaded = LoadedProject(
+                    loaded.project, loaded.tempo_bpm, loaded.audio_source, peaks
+                )
             audio = raw.get("audio")
             if audio is not None:
                 member = _text(audio, "member")
@@ -106,7 +126,12 @@ def load_project(path: Path, extraction_root: Path) -> LoadedProject:
                     channel_count=_integer(audio, "channel_count"),
                     sample_format=_text(audio, "sample_format"),
                 )
-                loaded = LoadedProject(loaded.project, loaded.tempo_bpm, source)
+                loaded = LoadedProject(
+                    loaded.project,
+                    loaded.tempo_bpm,
+                    source,
+                    loaded.waveform_peaks,
+                )
             return loaded
     except (OSError, BadZipFile, json.JSONDecodeError, KeyError, TypeError) as error:
         if isinstance(error, ProjectFileError):
@@ -119,10 +144,12 @@ def _encode(
     tempo_bpm: Fraction,
     audio: AudioSource | None,
     audio_member: str | None,
+    waveform_member: str | None,
 ) -> dict[str, Any]:
     calibration = project.calibration
     return {
         "format_version": FORMAT_VERSION,
+        "waveform_member": waveform_member,
         "tempo_bpm": _encode_fraction(tempo_bpm),
         "project": {
             "id": project.id,
@@ -288,3 +315,18 @@ def _safe_name(name: str) -> str:
     if not safe or safe in {".", ".."}:
         raise ProjectFileError("Audio filename is invalid.")
     return safe
+
+
+def _decode_peaks(value: list[Any]) -> tuple[tuple[float, float], ...]:
+    peaks: list[tuple[float, float]] = []
+    for pair in value:
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ProjectFileError("Saved waveform cache is invalid.")
+        try:
+            minimum, maximum = float(pair[0]), float(pair[1])
+        except (TypeError, ValueError) as error:
+            raise ProjectFileError("Saved waveform cache is invalid.") from error
+        if not -1.0 <= minimum <= maximum <= 1.0:
+            raise ProjectFileError("Saved waveform cache is invalid.")
+        peaks.append((minimum, maximum))
+    return tuple(peaks)

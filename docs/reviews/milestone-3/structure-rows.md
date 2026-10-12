@@ -53,6 +53,10 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
     Delete to remove the selected block. With only rows selected, Enter appends
     to the current row and Delete removes all selected rows. Ctrl+Z should
     reverse the latest Structure command each time.
+15. Drag a block edge without releasing. Its snapped beat total and all later
+    block positions should preview live. Confirm discreet beat ticks appear
+    inside blocks and alternating shades differ only subtly.
+16. Confirm the aligned block shows both the heavy green edge and anchor glyph.
 
 ## Deliberate boundary
 

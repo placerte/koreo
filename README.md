@@ -106,8 +106,8 @@ inactivity starts a new tapping session.
 
 Use the **File** menu, toolbar, Ctrl+S, or Ctrl+O to save and reopen portable
 `.kro` projects. The file embeds the selected audio and exact versioned project
-data; a `*` in the title marks unsaved changes. Only store or share embedded
-audio you have the rights to use.
+data plus an optional derived waveform cache; a `*` in the title marks unsaved
+changes. Only store or share embedded audio you have the rights to use.
 
 Open the **Structure** tab and choose **Generate AABA** to create the approved
 `Intro, A, A, B, A, Outro` starter. Each section begins with real 8-beat child

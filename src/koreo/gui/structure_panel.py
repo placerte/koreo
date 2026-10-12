@@ -47,6 +47,7 @@ from koreo.domain.structure import (
     section_patterns,
     update_section,
 )
+from koreo.settings import APPEARANCE
 
 _ROW_HEIGHT = 54
 _LABEL_WIDTH = 100
@@ -76,6 +77,7 @@ class StructureCanvas(QWidget):
         self.selection_anchor_id: str | None = None
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
+        self._resize_preview: tuple[str, int] | None = None
         self.playhead_beat: Fraction | None = None
         self.selection_positions_playhead = False
         self.setMouseTracking(True)
@@ -105,19 +107,36 @@ class StructureCanvas(QWidget):
                 region.label,
             )
             blocks = self._blocks(region.id)
+            block_offset = Fraction(0)
             for block_index, block in enumerate(blocks):
-                beats = block.duration
+                beats = (
+                    Fraction(self._resize_preview[1])
+                    if self._resize_preview is not None
+                    and self._resize_preview[0] == block.id
+                    else block.duration
+                )
                 rect = QRectF(
-                    _LABEL_WIDTH + float(block.start - region.start) * _BEAT_WIDTH,
+                    _LABEL_WIDTH + float(block_offset) * _BEAT_WIDTH,
                     y + 5,
                     float(beats) * _BEAT_WIDTH,
                     _ROW_HEIGHT - 10,
                 )
-                shade = base if block_index % 2 == 0 else base.lighter(118)
+                shade = base if block_index % 2 == 0 else _alternate_shade(base)
                 painter.fillRect(rect, shade)
                 painter.setPen(QPen(QColor("#64748b")))
                 painter.drawRect(rect)
                 painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(beats))
+                tick = 1
+                painter.setPen(QPen(QColor(71, 85, 105, 100), 1))
+                while Fraction(tick) < beats:
+                    tick_x = rect.left() + tick * _BEAT_WIDTH
+                    painter.drawLine(
+                        round(tick_x),
+                        round(rect.bottom()) - 6,
+                        round(tick_x),
+                        round(rect.bottom()),
+                    )
+                    tick += 1
                 if block.id == self.selected_block_id:
                     painter.setPen(QPen(QColor("#2563eb"), 3))
                     painter.drawRect(rect.adjusted(2, 2, -2, -2))
@@ -132,6 +151,12 @@ class StructureCanvas(QWidget):
                         round(rect.left()),
                         round(rect.bottom()),
                     )
+                    painter.drawText(
+                        round(rect.left()) + 5,
+                        round(rect.top()) + 15,
+                        "⚓",
+                    )
+                block_offset += beats
             if region.id in self.selected_ids:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
                 selected_width = _LABEL_WIDTH + float(region.duration) * _BEAT_WIDTH
@@ -191,6 +216,7 @@ class StructureCanvas(QWidget):
             return
         row, start_x, block_id = self._press
         self._press = None
+        self._resize_preview = None
         rows = self._rows()
         if row >= len(rows):
             duration = max(
@@ -250,6 +276,27 @@ class StructureCanvas(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if (
+            self._press is not None
+            and self._press[2] is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            pressed_row, _, block_id = self._press
+            rows = self._rows()
+            if pressed_row < len(rows) and block_id is not None:
+                block = next(
+                    item for item in self.project.regions if item.id == block_id
+                )
+                block_x = (
+                    _LABEL_WIDTH
+                    + float(block.start - rows[pressed_row].start) * _BEAT_WIDTH
+                )
+                duration = max(1, round((event.position().x() - block_x) / _BEAT_WIDTH))
+                self._resize_preview = (block_id, duration)
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+                self.update()
+                event.accept()
+                return
         row = int(event.position().y() // _ROW_HEIGHT)
         rows = self._rows()
         if row < len(rows):
@@ -365,6 +412,15 @@ class StructureCanvas(QWidget):
             ),
             None,
         )
+
+
+def _alternate_shade(base: QColor) -> QColor:
+    factor = APPEARANCE.block_alternate_shade_factor
+    return QColor(
+        round(base.red() * factor + 255 * (1 - factor)),
+        round(base.green() * factor + 255 * (1 - factor)),
+        round(base.blue() * factor + 255 * (1 - factor)),
+    )
 
 
 class StructurePanel(QWidget):

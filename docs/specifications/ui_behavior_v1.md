@@ -52,12 +52,20 @@ revises them.
   Anchor exists it starts at media time zero; setting the Anchor shifts it
   immediately to that media position.
 - A plain left click seeks to the clicked media time.
+- The displayed seek position updates synchronously even when playback is
+  stopped. Setting the grid Anchor immediately after a click uses that exact
+  displayed position and never requires briefly starting playback.
 - A left drag pans after crossing the platform drag threshold. A completed pan
   must not also seek on release. Middle-button panning is not used.
 - Wheel zoom is centered under the pointer. Zoom in, zoom out, and fit controls
   are also available.
 - Waveform, beat grid, Anchor, structure backgrounds, and playhead always use
   the same time transform.
+- Full-song rendering reduces visible peak buckets to approximately one bucket
+  per horizontal pixel while preserving each bucket's extrema. Playhead motion
+  must not repaint tens of thousands of redundant points.
+- Extracted waveform peaks are an optional cache in native project files.
+  Reopening uses a valid cache immediately; absent caches recompute normally.
 - Follow mode holds the playhead near 35% of the viewport while zoomed and
   moves the waveform beneath it. Wheel zoom or drag-pan suspends Follow; an
   explicit control resumes it.
@@ -90,7 +98,8 @@ revises them.
   section row/label or count block seeks to that exact item's start. With the
   toggle off, selection changes editing focus only.
 - The block whose start is aligned to the waveform Anchor has a distinct,
-  heavier Anchor-colored left border.
+  heavier Anchor-colored left border and an anchor glyph. The waveform uses
+  the same glyph instead of spelling out “Anchor.”
 - A plain click selects one section; Ctrl-click toggles sections into or out
   of a multi-selection. Shift-click fills the contiguous range from the
   selection anchor. Ctrl+C snapshots selected sections and all their child
@@ -101,6 +110,12 @@ revises them.
   section rows. Enter inserts an 8-count block after the selected block, or at
   the end of the current row when only a row is selected. Text-entry controls
   retain their normal editing interpretation of these keys.
+- Drag-resizing a count-block boundary previews the snapped duration and
+  following block positions continuously before mouse release.
+- Count blocks show discreet one-beat ruler ticks along their lower edge.
+- Alternating block shade contrast is configuration-driven. The initial
+  `block_alternate_shade_factor` is `0.9`, meaning a subtle 10% blend toward
+  white rather than a strongly contrasting shade.
 
 ## Project persistence
 

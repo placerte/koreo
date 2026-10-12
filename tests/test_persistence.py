@@ -24,13 +24,15 @@ def test_project_and_embedded_audio_round_trip_exactly(tmp_path: Path) -> None:
     )
     destination = tmp_path / "dance.kro"
 
-    save_project(destination, project, Fraction(279, 2), audio)
+    peaks = ((-0.5, 0.75), (-1.0, 1.0))
+    save_project(destination, project, Fraction(279, 2), audio, peaks)
     loaded = load_project(destination, tmp_path / "extracted")
 
     assert loaded.project == project
     assert loaded.tempo_bpm == Fraction(279, 2)
     assert loaded.audio_source is not None
     assert loaded.audio_source.path.read_bytes() == b"RIFF-test-audio"
+    assert loaded.waveform_peaks == peaks
 
 
 def test_project_without_audio_round_trips(tmp_path: Path) -> None:

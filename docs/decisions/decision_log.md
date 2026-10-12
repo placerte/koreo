@@ -173,3 +173,22 @@ active handoff without changing its milestone boundary.
 - **Impact:** Structure alignment requires an existing waveform Anchor and is
   available through block selection and the block context menu. Regression
   tests preserve the exact anchor timestamp and marker position.
+
+## KOR-DEC-011 — Preserve responsive structure and waveform feedback
+
+- **Date:** 2026-10-12
+- **Context:** Monkey testing exposed a stopped-seek race when anchoring,
+  redundant full-waveform painting, repeated waveform decoding after reopen,
+  and insufficient feedback while sizing count blocks.
+- **Decision:** A waveform click synchronously updates the displayed position,
+  and Anchor capture uses that position. Native files may carry an optional
+  waveform-peak cache. Full-view painting aggregates peaks per pixel. Anchor
+  locations use a shared glyph plus the existing strong Structure edge.
+  Structure resize previews update continuously, blocks include beat ruler
+  ticks, and alternate shading uses the packaged `0.9` appearance setting.
+- **Rationale:** Calibration must work without starting playback, transport
+  animation should remain smooth at full-song zoom, and direct manipulation
+  must communicate its result before commit.
+- **Impact:** Cached peaks are disposable derived data and do not change the
+  authoritative project model. A future framework must retain these observable
+  responsiveness and feedback rules even if its rendering mechanism differs.

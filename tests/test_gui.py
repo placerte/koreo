@@ -339,14 +339,17 @@ def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
     assert window.time_label.alignment() & Qt.AlignmentFlag.AlignRight
     assert window.time_label.minimumWidth() == window.time_label.maximumWidth()
     assert window.project.calibration is not None
-    assert window.project.calibration.anchor_seconds == Fraction(0)
-    assert window.waveform.anchor_ms == 0
+    assert window.project.calibration.anchor_seconds == Fraction(15)
+    assert window.waveform.anchor_ms == 15_000
 
     seek_spy = QSignalSpy(window.waveform.seek_requested)
     expected_time = round(window.waveform._x_to_time(400))
     QTest.mouseClick(window.waveform, Qt.MouseButton.LeftButton, pos=QPoint(400, 75))
     assert seek_spy.count() == 1
     assert seek_spy.at(0)[0] == expected_time
+    window._set_anchor()
+    assert window.project.calibration is not None
+    assert window.project.calibration.anchor_seconds == Fraction(expected_time, 1000)
 
     window.waveform.zoom_in()
     drag_seek_spy = QSignalSpy(window.waveform.seek_requested)

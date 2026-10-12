@@ -189,8 +189,11 @@ class WaveformWidget(QWidget):
                 len(self.peaks),
                 int(end_time / self.duration_ms * len(self.peaks)) + 2,
             )
-            for index in range(start_index, end_index):
-                minimum, maximum = self.peaks[index]
+            step = max(1, (end_index - start_index) // max(self.width(), 1))
+            for index in range(start_index, end_index, step):
+                group = self.peaks[index : min(index + step, end_index)]
+                minimum = min(item[0] for item in group)
+                maximum = max(item[1] for item in group)
                 time_ms = index * self.duration_ms / max(len(self.peaks) - 1, 1)
                 x = self._time_to_x(time_ms)
                 top.append(QPointF(x, center - maximum * (center - 10)))
@@ -204,7 +207,7 @@ class WaveformWidget(QWidget):
                 anchor_x = self._time_to_x(self.anchor_ms)
                 painter.setPen(QPen(QColor("#16a34a"), 3))
                 painter.drawLine(int(anchor_x), 0, int(anchor_x), self.height())
-                painter.drawText(int(anchor_x) + 5, 16, "Anchor")
+                painter.drawText(int(anchor_x) + 5, 16, "⚓")
             if self._is_visible(self.position_ms):
                 playhead_x = self._time_to_x(self.position_ms)
                 painter.setPen(QPen(QColor("#dc2626"), 2))

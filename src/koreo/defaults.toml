@@ -1,0 +1,3 @@
+[appearance]
+# 1.0 keeps the base color; lower values blend progressively toward white.
+block_alternate_shade_factor = 0.9

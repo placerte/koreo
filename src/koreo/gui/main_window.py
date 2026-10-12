@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
 
         self.waveform = WaveformWidget()
         self.waveform.set_bpm(float(self.tempo_bpm))
-        self.waveform.seek_requested.connect(self.playback.seek)
+        self.waveform.seek_requested.connect(self._seek_from_waveform)
         transport_layout.addWidget(self.waveform)
         calibration_controls = QHBoxLayout()
         self.processing_indicator = QProgressBar()
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
         self.song_label.setText(message)
 
     def _set_anchor(self) -> None:
-        anchor_ms = self.playback.position
+        anchor_ms = self.waveform.position_ms
         calibration = BeatCalibration(
             bpm=self.tempo_bpm,
             anchor_seconds=Fraction(anchor_ms, 1000),
@@ -524,6 +524,7 @@ class MainWindow(QMainWindow):
                 self.project,
                 self.tempo_bpm,
                 self.audio_source,
+                self.waveform.peaks,
             )
         except (ProjectFileError, OSError) as error:
             QMessageBox.critical(self, "Save failed", str(error))
@@ -603,9 +604,20 @@ class MainWindow(QMainWindow):
             self.tap_bpm_button.setEnabled(True)
             self.transport.setVisible(True)
             self.playback.load(source.path)
-            self.processing_indicator.setVisible(True)
-            self._waveform_extractor.extract(source.path)
+            if loaded.waveform_peaks:
+                self.waveform.set_peaks(loaded.waveform_peaks)
+                self.processing_indicator.setVisible(False)
+                self.song_label.setText(f"{source.display_name} — waveform ready")
+            else:
+                self.processing_indicator.setVisible(True)
+                self._waveform_extractor.extract(source.path)
         self._set_clean()
+
+    def _seek_from_waveform(self, position_ms: int) -> None:
+        self.playback.seek(position_ms)
+        # Qt may report the media position asynchronously while stopped. Keep
+        # the visible playhead and immediate Anchor action deterministic.
+        self._position_changed(position_ms)
 
     def _confirm_discard_changes(self) -> bool:
         if not self.dirty:
