@@ -257,6 +257,7 @@ class SetupDialog(QDialog):
         self.anchor_label.setText(f"Beat 0 at {_format_ms(self.player.position())}")
         self._rebuild_calibration()
         self.calibration_button.setEnabled(self._calibration is not None)
+        self._refresh_acceptance()
 
     def _set_calibration_point(self) -> None:
         if self._calibration is None:

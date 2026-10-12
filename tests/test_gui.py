@@ -2,11 +2,16 @@
 
 # [GH-7] [GH-8] [GH-9] [T-09]
 
+from fractions import Fraction
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDialogButtonBox
 from pytestqt.qtbot import QtBot
 
+from koreo.audio import AudioSource
 from koreo.fixtures import representative_project
 from koreo.gui.main_window import MainWindow
 from koreo.gui.setup_dialog import SetupDialog
@@ -61,3 +66,22 @@ def test_focused_spacebar_taps_bpm_without_starting_playback(qtbot: QtBot) -> No
     assert dialog.bpm_edit.text() == "120"
     assert dialog.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState
     assert dialog._tap_tempo.tap_count == 2
+
+
+def test_capturing_anchor_enables_enter_editor(qtbot: QtBot, tmp_path: Path) -> None:
+    dialog = SetupDialog(representative_project())
+    qtbot.addWidget(dialog)
+    dialog.audio_source = AudioSource(
+        display_name="known.wav",
+        path=tmp_path / "known.wav",
+        duration_seconds=Fraction(120),
+        sample_rate=44_100,
+        channel_count=2,
+        sample_format="Int16",
+    )
+
+    dialog._set_anchor()
+
+    enter = dialog.buttons.button(QDialogButtonBox.StandardButton.Ok)
+    assert dialog.anchor_label.text() == "Beat 0 at 0:00.000"
+    assert enter.isEnabled()
