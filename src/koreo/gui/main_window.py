@@ -1,8 +1,22 @@
-"""Read-only application shell sharing one Project between two views."""
+"""Application shell sharing one project and session between two views."""
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+from fractions import Fraction
+from pathlib import Path
 
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from koreo.audio import AudioProbe, AudioSource
 from koreo.domain.models import Project
+from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.sheet import SheetView
 from koreo.gui.timeline import TimelineView
 from koreo.presentation.mapping import build_sheet, build_timeline
@@ -16,13 +30,75 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
-        self.audio_source: object | None = None
+        self.audio_source: AudioSource | None = None
+        self.tempo_bpm = Fraction(120)
+        self._probe = AudioProbe(self)
+        self._probe.succeeded.connect(self._audio_ready)
+        self._probe.failed.connect(self._audio_failed)
         self.timeline_view = TimelineView(build_timeline(project))
         self.sheet_view = SheetView(build_sheet(project))
+        self.choose_song_button = QPushButton("Choose song…")
+        self.choose_song_button.clicked.connect(self._choose_song)
+        self.song_label = QLabel("No song selected")
+        self.song_label.setWordWrap(True)
+        self.tap_bpm_button = QPushButton("Tap BPM")
+        self.tap_bpm_button.clicked.connect(self._open_bpm_dialog)
+        self.bpm_label = QLabel("120 BPM")
+
+        song_bar = QHBoxLayout()
+        song_bar.addWidget(self.choose_song_button)
+        song_bar.addWidget(self.song_label, 1)
+        song_bar.addWidget(self.tap_bpm_button)
+        song_bar.addWidget(self.bpm_label)
+
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Project view selector")
         self.tabs.addTab(self.timeline_view, "Timeline")
         self.tabs.addTab(self.sheet_view, "Sheet")
-        self.setCentralWidget(self.tabs)
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.addLayout(song_bar)
+        layout.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
         self.setWindowTitle(f"Koreo — {project.name}")
         self.resize(1100, 700)
+
+    def _choose_song(self) -> None:
+        selected, _ = QFileDialog.getOpenFileName(
+            self, "Choose song", "", "Audio files (*.mp3 *.wav)"
+        )
+        if selected:
+            self.load_song(Path(selected))
+
+    def load_song(self, path: Path) -> None:
+        """Validate a selected song without replacing the last valid source."""
+
+        self.choose_song_button.setEnabled(False)
+        self.song_label.setText(f"Checking {path.name}…")
+        self._probe.probe(path)
+
+    def _audio_ready(self, source: object) -> None:
+        assert isinstance(source, AudioSource)
+        self.audio_source = source
+        self.song_label.setText(
+            f"{source.display_name} — {source.sample_rate} Hz, "
+            f"{source.channel_count} channel(s)"
+        )
+        self.choose_song_button.setEnabled(True)
+
+    def _audio_failed(self, message: str) -> None:
+        if self.audio_source is None:
+            self.song_label.setText(message)
+        else:
+            self.song_label.setText(
+                f"{self.audio_source.display_name} — new selection failed: {message}"
+            )
+        self.choose_song_button.setEnabled(True)
+
+    def _open_bpm_dialog(self) -> None:
+        dialog = BpmDialog(self.tempo_bpm, self)
+        if dialog.exec() and dialog.result_bpm is not None:
+            self.tempo_bpm = dialog.result_bpm
+            self.bpm_label.setText(
+                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".") + " BPM"
+            )

@@ -36,8 +36,8 @@ The repository currently provides:
 
 - the completed Milestone 1 domain model and read-only dual-view prototype;
 - exact constant-tempo calibration and tap-tempo logic; and
-- an in-progress guided setup screen with MP3/WAV decoding, playback/seek
-  controls, BPM entry/tapping, and anchor/calibration capture.
+- an in-progress main application shell with MP3/WAV song selection and a
+  focused manual/tap BPM modal.
 
 Milestone 2 work is coordinated under
 [issue #11](https://github.com/placerte/koreo/issues/11).
@@ -90,12 +90,11 @@ uv sync
 uv run koreo
 ```
 
-The app opens with guided setup. Choose an MP3 or WAV, wait for decoder
-confirmation, then play or seek to a musical `one`. Type BPM directly, or
-focus the **Tap BPM** button and press Space at least twice; key auto-repeat is
-ignored and three seconds of inactivity starts a new tapping session. Click
-**Set current position as beat 0**, then **Enter editor**. The optional Refine
-field matches a grid beat (for example `128`) to the current audio position.
+The app opens directly into its main window. Use **Choose song…** to select an
+MP3 or WAV and wait for decoder confirmation. **Tap BPM** opens a small modal:
+type BPM directly, or focus its tap button and press Space at least twice. Key
+auto-repeat is ignored and three seconds of inactivity starts a new tapping
+session.
 
 Run the complete automated checks:
 
@@ -114,9 +113,9 @@ environment:
 QT_QPA_PLATFORM=offscreen uv run python scripts/capture_screenshots.py
 ```
 
-The editor views remain read-only while Milestone 2 is in progress. Imported
-audio is currently used by the setup/calibration workflow; shared playback,
-waveform rendering, and playheads inside both editor views are still pending.
+The editor views remain read-only while Milestone 2 is in progress. Playback,
+waveform-backed anchor/refinement controls, and playheads inside the editor
+views are still pending.
 
 ## Project artifacts
 
