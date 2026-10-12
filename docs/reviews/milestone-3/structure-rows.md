@@ -27,7 +27,8 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
    Confirm later rows shift to preserve a contiguous song structure.
 7. Double-click a colored row label to rename it in place. Hover the right
    edge of a row to see the resize cursor. Right-click a row to choose a
-   palette color or delete it.
+   palette color or delete it. Palette entries should show both a color swatch
+   and its hex value.
 8. Switch to Timeline or Sheet and back. All tabs should continue rendering
    the same immutable project state.
 9. Reduce the window height while the waveform is visible. The Structure tab
@@ -38,6 +39,9 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
     selected block to grid Anchor**. Confirm the waveform Anchor does not
     move, the Intro stays visible, a red play cursor traverses the blocks, and
     section colors appear faintly behind the waveform.
+11. Enable **Selection moves playhead**. Click a section label and then a count
+    block; each should seek to that exact item's start. Disable the toggle and
+    confirm the same clicks only select for editing.
 
 ## Deliberate boundary
 

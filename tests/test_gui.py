@@ -126,6 +126,24 @@ def test_structure_block_aligns_to_existing_waveform_anchor(qtbot: QtBot) -> Non
     assert window.structure_panel.canvas.playhead_beat == 0
 
 
+def test_structure_selection_can_seek_section_or_block(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    window.structure_panel.generate_button.click()
+    window._set_anchor()
+    window.structure_panel.position_toggle.setChecked(True)
+    seek_spy = QSignalSpy(window.structure_panel.position_requested)
+    canvas = window.structure_panel.canvas
+    canvas.resize(800, 400)
+
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(30, 70))
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(150, 70))
+
+    assert seek_spy.count() == 2
+    assert seek_spy.at(0)[0] == Fraction(32)
+    assert seek_spy.at(1)[0] == Fraction(32)
+
+
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:
     window = MainWindow(representative_project())
     qtbot.addWidget(window)

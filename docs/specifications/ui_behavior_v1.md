@@ -85,6 +85,10 @@ revises them.
   click. Hovering the section endpoint shows a horizontal-resize cursor.
 - Right-clicking a section selects it and exposes palette colors and deletion
   in a contextual menu.
+- Palette choices show a rendered color swatch before the precise hex value.
+- An explicit **Selection moves playhead** toggle controls whether clicking a
+  section row/label or count block seeks to that exact item's start. With the
+  toggle off, selection changes editing focus only.
 - Each visible count block is a real child region. The section total is the
   sum of its children; adding, deleting, or resizing a child ripples all later
   sections by the exact duration delta.

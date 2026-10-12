@@ -6,12 +6,15 @@ from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
+    QIcon,
     QMouseEvent,
     QPaintEvent,
     QPainter,
     QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -54,6 +57,7 @@ class StructureCanvas(QWidget):
     resize_block_requested = Signal(str, int)
     delete_block_requested = Signal(str)
     anchor_block_requested = Signal(str)
+    position_requested = Signal(object)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -63,6 +67,7 @@ class StructureCanvas(QWidget):
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
         self.playhead_beat: Fraction | None = None
+        self.selection_positions_playhead = False
         self.setMouseTracking(True)
         self.setMinimumHeight(300)
 
@@ -174,6 +179,13 @@ class StructureCanvas(QWidget):
         clicked_block = self._block_at(region, round(event.position().x()))
         self.selected_block_id = clicked_block.id if clicked_block is not None else None
         self.selected.emit(region.id)
+        if (
+            self.selection_positions_playhead
+            and block_id is None
+            and abs(event.position().x() - start_x) < 2
+        ):
+            target = clicked_block.start if clicked_block is not None else region.start
+            self.position_requested.emit(target)
         if block_id is not None and abs(event.position().x() - start_x) >= 2:
             block = next(item for item in self.project.regions if item.id == block_id)
             block_x = _LABEL_WIDTH + float(block.start - region.start) * _BEAT_WIDTH
@@ -238,6 +250,9 @@ class StructureCanvas(QWidget):
         for color in SECTION_PALETTE:
             action = color_menu.addAction(color)
             action.setData(color)
+            swatch = QPixmap(14, 14)
+            swatch.fill(QColor(color))
+            action.setIcon(QIcon(swatch))
         color_menu.triggered.connect(
             lambda action: self.color_requested.emit(region.id, str(action.data()))
         )
@@ -310,6 +325,7 @@ class StructureCanvas(QWidget):
 class StructurePanel(QWidget):
     project_changed = Signal(object)
     anchor_block_requested = Signal(str)
+    position_requested = Signal(object)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -334,10 +350,13 @@ class StructurePanel(QWidget):
         self.generate_button.clicked.connect(self._generate)
         self.anchor_button = QPushButton("Align selected block to grid Anchor")
         self.anchor_button.clicked.connect(self._anchor_selected)
+        self.position_toggle = QCheckBox("Selection moves playhead")
+        self.position_toggle.toggled.connect(self._position_toggle_changed)
         generator.addWidget(QLabel("Section beats:"))
         generator.addWidget(self.template_duration)
         generator.addWidget(self.generate_button)
         generator.addWidget(self.anchor_button)
+        generator.addWidget(self.position_toggle)
         generator.addStretch(1)
         layout.addLayout(generator)
         self.canvas = StructureCanvas(project)
@@ -352,6 +371,7 @@ class StructurePanel(QWidget):
         self.canvas.resize_block_requested.connect(self._resize_block)
         self.canvas.delete_block_requested.connect(self._delete_block)
         self.canvas.anchor_block_requested.connect(self.anchor_block_requested)
+        self.canvas.position_requested.connect(self.position_requested)
         layout.addWidget(self.canvas, 1)
         editor = QHBoxLayout()
         self.label_edit = QLineEdit()
@@ -401,6 +421,9 @@ class StructurePanel(QWidget):
             self.status.setText("Select a count block first.")
             return
         self.anchor_block_requested.emit(self.canvas.selected_block_id)
+
+    def _position_toggle_changed(self, enabled: bool) -> None:
+        self.canvas.selection_positions_playhead = enabled
 
     def _insert(self, section_id: str) -> None:
         self._commit(

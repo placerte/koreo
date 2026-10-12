@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self.structure_panel.anchor_block_requested.connect(
             self._anchor_structure_block
         )
+        self.structure_panel.position_requested.connect(self._seek_to_structure_beat)
         self.choose_song_button = QPushButton("Choose song…")
         self.choose_song_button.clicked.connect(self._choose_song)
         self.song_label = QLabel("No song selected")
@@ -328,6 +329,17 @@ class MainWindow(QMainWindow):
         self.structure_panel.status.setText("Selected block starts at the grid Anchor.")
         self._refresh_count_views()
         self._refresh_structure_mapping()
+
+    def _seek_to_structure_beat(self, beat: object) -> None:
+        assert isinstance(beat, Fraction)
+        calibration = self.project.calibration
+        if calibration is None:
+            self.structure_panel.status.setText(
+                "Set the grid Anchor before seeking by structure."
+            )
+            return
+        milliseconds = round(calibration.seconds_at(beat) * 1000)
+        self.playback.seek(max(0, milliseconds))
 
     def _toggle_playback(self) -> None:
         if self.playback.is_playing:
