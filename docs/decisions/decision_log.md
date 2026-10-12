@@ -93,3 +93,22 @@ active handoff without changing its milestone boundary.
 - **Impact:** Waveform, BPM grid, anchor, and playhead continue to share one
   time transform. Follow state is presentation-only and never changes media
   position or calibration.
+
+## KOR-DEC-006 — Primary-pointer waveform navigation and global Space
+
+- **Date:** 2026-10-11
+- **Context:** Monkey testing requested direct waveform seeking, primary-button
+  panning, and predictable playback control regardless of focused main-window
+  widget.
+- **Decision:** A left click on the waveform seeks to its mapped media time.
+  Left-drag pans only after crossing Qt's platform drag threshold; releasing a
+  drag never also seeks. Middle-button panning is removed. In the main window,
+  Space is a non-auto-repeating Play/Pause shortcut across the entire widget
+  hierarchy instead of activating the focused control. The modal Tap BPM
+  session remains the intentional exception and owns Space while open.
+- **Rationale:** Click and drag can share the primary pointer safely when
+  movement is classified using the platform convention. A window-level
+  shortcut prevents accidental button activation during playback work.
+- **Impact:** Waveform pointer tests must distinguish click from drag. Future
+  main-window controls must not override Space; modal tools must explicitly
+  define whether they temporarily own it.

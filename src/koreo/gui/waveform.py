@@ -13,7 +13,7 @@ from PySide6.QtGui import (
     QPolygonF,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 _MAX_ZOOM = 64.0
 
@@ -22,6 +22,7 @@ class WaveformWidget(QWidget):
     """Render normalized peak buckets against media time."""
 
     follow_changed = Signal(bool)
+    seek_requested = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -33,7 +34,9 @@ class WaveformWidget(QWidget):
         self.zoom_factor = 1.0
         self.view_start_ms = 0.0
         self.follow_playhead = True
+        self._press_x: float | None = None
         self._pan_x: float | None = None
+        self._dragging = False
         self.setMinimumHeight(150)
         self.setAccessibleName("Song waveform and playhead")
 
@@ -110,16 +113,32 @@ class WaveformWidget(QWidget):
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self.set_follow_playhead(False)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_x = event.position().x()
             self._pan_x = event.position().x()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._dragging = False
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if self._pan_x is not None and self.width() > 0:
+        if (
+            self._pan_x is not None
+            and self._press_x is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and self.width() > 0
+        ):
+            if (
+                not self._dragging
+                and abs(event.position().x() - self._press_x)
+                >= QApplication.startDragDistance()
+            ):
+                self._dragging = True
+                self.set_follow_playhead(False)
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            if not self._dragging:
+                event.accept()
+                return
             delta_x = event.position().x() - self._pan_x
             self.view_start_ms -= delta_x * self.visible_duration_ms / self.width()
             self._pan_x = event.position().x()
@@ -130,9 +149,15 @@ class WaveformWidget(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.MiddleButton and self._pan_x is not None:
+        if event.button() == Qt.MouseButton.LeftButton and self._pan_x is not None:
+            was_dragging = self._dragging
             self._pan_x = None
+            self._press_x = None
+            self._dragging = False
             self.unsetCursor()
+            if not was_dragging:
+                requested = round(self._x_to_time(event.position().x()))
+                self.seek_requested.emit(max(0, min(requested, self.duration_ms)))
             event.accept()
             return
         super().mouseReleaseEvent(event)

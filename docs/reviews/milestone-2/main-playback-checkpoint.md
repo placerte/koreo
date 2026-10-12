@@ -20,13 +20,15 @@ with **Choose song…**.
    and fixed-width time label advance together.
 3. Press **Pause** and confirm position is retained; resume with **Play**.
 4. Drag the seek slider and confirm audio and the waveform playhead move to
-   the selected position.
+   the selected position. Also left-click the waveform and confirm it seeks to
+   that time.
 5. Point at a recognizable waveform feature and turn the mouse wheel. Confirm
    zoom stays centered beneath the pointer. Middle-drag horizontally to pan.
    Also verify the **−**, **+**, and **Fit** controls. At zoom, enable
    **Follow** and confirm the red playhead stays near a fixed horizontal offset
-   while the waveform moves. Manual wheel zoom or middle-drag should suspend
-   Follow; its button resumes it.
+   while the waveform moves. Left-drag the waveform to pan; crossing the drag
+   threshold must suppress click-to-seek and suspend Follow. Its button resumes
+   it.
 6. Press **Stop** and confirm the position returns to the start.
 7. Seek or play to a musical `one`, then press **Set playhead as beat 0**.
    Confirm a green Beat 0 marker appears and the faint BPM grid immediately
@@ -36,6 +38,9 @@ with **Choose song…**.
    updates rather than the anchor moving.
 9. Switch between Timeline and Sheet and confirm playback continues without
    losing the selected song or calibration.
+10. Focus several different main-window controls and press Space. Confirm it
+    always toggles Play/Pause rather than activating the focused control. Tap
+    BPM remains the intentional modal exception where Space records taps.
 
 ## Current checkpoint boundary
 

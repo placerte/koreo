@@ -5,9 +5,10 @@
 from fractions import Fraction
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
+from PySide6.QtWidgets import QApplication
 from pytestqt.qtbot import QtBot
 
 from koreo.audio import AudioSource
@@ -103,6 +104,7 @@ def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
     qtbot.addWidget(window)
     window.transport.setVisible(True)
     window.waveform.set_duration(60_000)
+    window.waveform.resize(800, 150)
     window.waveform.set_peaks(((-0.5, 0.75), (-1.0, 1.0), (-0.25, 0.4)))
     window._position_changed(15_000)
     original_x = window.waveform._time_to_x(15_000)
@@ -125,3 +127,29 @@ def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
     assert window.project.calibration is not None
     assert window.project.calibration.anchor_seconds == Fraction(0)
     assert window.waveform.anchor_ms == 0
+
+    seek_spy = QSignalSpy(window.waveform.seek_requested)
+    expected_time = round(window.waveform._x_to_time(400))
+    QTest.mouseClick(window.waveform, Qt.MouseButton.LeftButton, pos=QPoint(400, 75))
+    assert seek_spy.count() == 1
+    assert seek_spy.at(0)[0] == expected_time
+
+    window.waveform.zoom_in()
+    drag_seek_spy = QSignalSpy(window.waveform.seek_requested)
+    start_view = window.waveform.view_start_ms
+    QTest.mousePress(window.waveform, Qt.MouseButton.LeftButton, pos=QPoint(500, 75))
+    QTest.mouseMove(window.waveform, QPoint(300, 75))
+    QTest.mouseRelease(window.waveform, Qt.MouseButton.LeftButton, pos=QPoint(300, 75))
+    assert drag_seek_spy.count() == 0
+    assert window.waveform.view_start_ms != start_view
+    assert not window.waveform.follow_playhead
+
+    playback_spy = QSignalSpy(window.play_pause_requested)
+    window.show()
+    window.activateWindow()
+    QApplication.processEvents()
+    window.bpm_edit.setFocus()
+    bpm_text = window.bpm_edit.text()
+    QTest.keyClick(window.bpm_edit, Qt.Key.Key_Space)
+    assert playback_spy.count() == 1
+    assert window.bpm_edit.text() == bpm_text

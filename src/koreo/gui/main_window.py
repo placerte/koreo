@@ -4,9 +4,10 @@ from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
+    QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -33,6 +34,8 @@ from koreo.presentation.mapping import build_sheet, build_timeline
 class MainWindow(QMainWindow):
     """Host Timeline and Sheet tabs for one immutable project instance."""
 
+    play_pause_requested = Signal()
+
     # [GH-9] [S-M1-06] Both tabs derive from the same Project object.
 
     def __init__(self, project: Project) -> None:
@@ -51,6 +54,10 @@ class MainWindow(QMainWindow):
         self.playback.duration_changed.connect(self._duration_changed)
         self.playback.state_changed.connect(self._playback_state_changed)
         self.playback.failed.connect(self._playback_failed)
+        application = QApplication.instance()
+        assert application is not None
+        application.installEventFilter(self)
+        self.play_pause_requested.connect(self._toggle_playback)
         self.timeline_view = TimelineView(build_timeline(project))
         self.sheet_view = SheetView(build_sheet(project))
         self.choose_song_button = QPushButton("Choose song…")
@@ -98,6 +105,7 @@ class MainWindow(QMainWindow):
 
         self.waveform = WaveformWidget()
         self.waveform.set_bpm(float(self.tempo_bpm))
+        self.waveform.seek_requested.connect(self.playback.seek)
         transport_layout.addWidget(self.waveform)
         calibration_controls = QHBoxLayout()
         self.processing_indicator = QProgressBar()
@@ -163,6 +171,24 @@ class MainWindow(QMainWindow):
         )
         if selected:
             self.load_song(Path(selected))
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        """Reserve Space for main-window playback across focused controls."""
+
+        del watched
+        application = QApplication.instance()
+        assert application is None or isinstance(application, QApplication)
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Space  # type: ignore[attr-defined]
+            and self.isActiveWindow()
+            and application is not None
+            and application.activeModalWidget() is None
+        ):
+            if not event.isAutoRepeat():  # type: ignore[attr-defined]
+                self.play_pause_requested.emit()
+            return True
+        return False
 
     def load_song(self, path: Path) -> None:
         """Validate a selected song without replacing the last valid source."""
