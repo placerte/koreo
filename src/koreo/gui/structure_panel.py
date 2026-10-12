@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -137,7 +138,18 @@ class StructurePanel(QWidget):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        content = QWidget()
+        layout = QVBoxLayout(content)
         generator = QHBoxLayout()
         self.template_duration = QSpinBox()
         self.template_duration.setRange(1, 512)
@@ -174,6 +186,8 @@ class StructurePanel(QWidget):
         layout.addLayout(editor)
         self.status = QLabel("Drag on the blank row to append a section.")
         layout.addWidget(self.status)
+        self.scroll_area.setWidget(content)
+        outer_layout.addWidget(self.scroll_area)
 
     def set_project(self, project: Project) -> None:
         self.project = project

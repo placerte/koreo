@@ -72,6 +72,20 @@ def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
     assert all(region.id != selected.id for region in window.project.regions)
 
 
+def test_structure_panel_scrolls_when_window_is_constrained(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    window.tabs.setCurrentWidget(window.structure_panel)
+    window.structure_panel.generate_button.click()
+    window.resize(900, 480)
+    window.show()
+    QApplication.processEvents()
+
+    scroll_bar = window.structure_panel.scroll_area.verticalScrollBar()
+    assert scroll_bar.maximum() > 0
+    assert window.structure_panel.apply_button.parent() is not None
+
+
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:
     window = MainWindow(representative_project())
     qtbot.addWidget(window)

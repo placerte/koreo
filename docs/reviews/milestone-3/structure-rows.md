@@ -27,6 +27,9 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
    positions, so any resulting gap remains explicit.
 7. Switch to Timeline or Sheet and back. All tabs should continue rendering
    the same immutable project state.
+8. Reduce the window height while the waveform is visible. The Structure tab
+   should gain a vertical scrollbar, with its editor controls remaining below
+   the grid instead of overlapping it.
 
 ## Deliberate boundary
 

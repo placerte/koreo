@@ -78,6 +78,8 @@ revises them.
   8-count blocks alternate the row base color and a lighter derived shade.
 - A persistent blank row supports drag-to-create. Selection exposes exact
   label, duration, and color editing plus deletion.
+- The complete Structure workspace scrolls vertically when waveform or window
+  height leaves too little room; controls must never overlap the section grid.
 - Variable lengths and incomplete blocks are valid. Visual centering of short
   rows carries no timing meaning.
 - Reusable named template libraries and palette themes are future work.
