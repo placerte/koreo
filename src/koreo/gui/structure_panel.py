@@ -2,12 +2,20 @@
 
 from fractions import Fraction
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPen
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -17,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from koreo.domain.models import MusicalRegion, Project
 from koreo.domain.structure import (
+    SECTION_PALETTE,
     StructureEditError,
     append_section,
     delete_section,
@@ -33,12 +42,17 @@ class StructureCanvas(QWidget):
     selected = Signal(str)
     append_requested = Signal(int)
     resize_requested = Signal(str, int)
+    rename_requested = Signal(str, str)
+    color_requested = Signal(str, str)
+    delete_requested = Signal(str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
         self.selected_id: str | None = None
         self._press: tuple[int, float] | None = None
+        self._label_editor: QLineEdit | None = None
+        self.setMouseTracking(True)
         self.setMinimumHeight(300)
 
     def set_project(self, project: Project) -> None:
@@ -52,13 +66,17 @@ class StructureCanvas(QWidget):
         painter.fillRect(self.rect(), QColor("#f8fafc"))
         for row, region in enumerate(self._rows()):
             y = row * _ROW_HEIGHT
+            base = QColor(region.color or "#bfdbfe")
+            painter.fillRect(
+                QRectF(2, y + 5, _LABEL_WIDTH - 8, _ROW_HEIGHT - 10),
+                base.lighter(112),
+            )
             painter.setPen(QPen(QColor("#334155")))
             painter.drawText(
                 QRectF(6, y, _LABEL_WIDTH - 10, _ROW_HEIGHT),
                 Qt.AlignmentFlag.AlignVCenter,
                 region.label,
             )
-            base = QColor(region.color or "#bfdbfe")
             blocks = max(1, (region.duration.numerator + 7) // 8)
             for block in range(blocks):
                 beats = min(Fraction(8), region.duration - block * 8)
@@ -123,6 +141,81 @@ class StructureCanvas(QWidget):
             self.resize_requested.emit(region.id, duration)
         self.update()
 
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        row = int(event.position().y() // _ROW_HEIGHT)
+        rows = self._rows()
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and event.position().x() < _LABEL_WIDTH
+            and row < len(rows)
+        ):
+            self._begin_label_edit(rows[row], row)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        row = int(event.position().y() // _ROW_HEIGHT)
+        rows = self._rows()
+        if row < len(rows):
+            endpoint = _LABEL_WIDTH + float(rows[row].duration) * _BEAT_WIDTH
+            if abs(event.position().x() - endpoint) <= 6:
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+            else:
+                self.unsetCursor()
+        else:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802
+        self.unsetCursor()
+        super().leaveEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        row = int(event.pos().y() // _ROW_HEIGHT)
+        rows = self._rows()
+        if row >= len(rows):
+            return
+        region = rows[row]
+        self.selected_id = region.id
+        self.selected.emit(region.id)
+        menu = QMenu(self)
+        color_menu = menu.addMenu("Section color")
+        assert color_menu is not None
+        for color in SECTION_PALETTE:
+            action = color_menu.addAction(color)
+            action.setData(color)
+        color_menu.triggered.connect(
+            lambda action: self.color_requested.emit(region.id, str(action.data()))
+        )
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete section")
+        chosen = menu.exec(event.globalPos())
+        if chosen is delete_action:
+            self.delete_requested.emit(region.id)
+        event.accept()
+
+    def _begin_label_edit(self, region: MusicalRegion, row: int) -> None:
+        if self._label_editor is not None:
+            self._label_editor.deleteLater()
+        editor = QLineEdit(region.label, self)
+        editor.setGeometry(2, row * _ROW_HEIGHT + 5, _LABEL_WIDTH - 8, _ROW_HEIGHT - 10)
+        editor.selectAll()
+        editor.show()
+        editor.setFocus()
+        self._label_editor = editor
+
+        def finish() -> None:
+            if self._label_editor is not editor:
+                return
+            value = editor.text().strip()
+            editor.deleteLater()
+            self._label_editor = None
+            if value and value != region.label:
+                self.rename_requested.emit(region.id, value)
+
+        editor.editingFinished.connect(finish)
+
     def _rows(self) -> tuple[MusicalRegion, ...]:
         return tuple(
             sorted(
@@ -165,6 +258,9 @@ class StructurePanel(QWidget):
         self.canvas.selected.connect(self._select)
         self.canvas.append_requested.connect(self._append)
         self.canvas.resize_requested.connect(self._resize)
+        self.canvas.rename_requested.connect(self._rename)
+        self.canvas.color_requested.connect(self._recolor)
+        self.canvas.delete_requested.connect(self._delete_id)
         layout.addWidget(self.canvas, 1)
         editor = QHBoxLayout()
         self.label_edit = QLineEdit()
@@ -228,6 +324,14 @@ class StructurePanel(QWidget):
         except StructureEditError as error:
             self.status.setText(str(error))
 
+    def _rename(self, region_id: str, label: str) -> None:
+        region = self._region(region_id)
+        self._update(region, label=label, color=region.color or "#bfdbfe")
+
+    def _recolor(self, region_id: str, color: str) -> None:
+        region = self._region(region_id)
+        self._update(region, label=region.label, color=color)
+
     def _apply(self) -> None:
         if self.canvas.selected_id is None:
             return
@@ -247,5 +351,25 @@ class StructurePanel(QWidget):
     def _delete(self) -> None:
         if self.canvas.selected_id is None:
             return
-        self._commit(delete_section(self.project, self.canvas.selected_id))
+        self._delete_id(self.canvas.selected_id)
+
+    def _delete_id(self, region_id: str) -> None:
+        self._commit(delete_section(self.project, region_id))
         self.canvas.selected_id = None
+
+    def _region(self, region_id: str) -> MusicalRegion:
+        return next(region for region in self.project.regions if region.id == region_id)
+
+    def _update(self, region: MusicalRegion, *, label: str, color: str) -> None:
+        try:
+            self._commit(
+                update_section(
+                    self.project,
+                    region.id,
+                    label=label,
+                    duration=int(region.duration),
+                    color=color,
+                )
+            )
+        except StructureEditError as error:
+            self.status.setText(str(error))

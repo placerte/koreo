@@ -78,6 +78,10 @@ revises them.
   8-count blocks alternate the row base color and a lighter derived shade.
 - A persistent blank row supports drag-to-create. Selection exposes exact
   label, duration, and color editing plus deletion.
+- Row labels use the section color and enter an in-place text editor on double
+  click. Hovering the section endpoint shows a horizontal-resize cursor.
+- Right-clicking a section selects it and exposes palette colors and deletion
+  in a contextual menu.
 - The complete Structure workspace scrolls vertically when waveform or window
   height leaves too little room; controls must never overlap the section grid.
 - Variable lengths and incomplete blocks are valid. Visual centering of short

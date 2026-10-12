@@ -68,6 +68,11 @@ def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
     assert window.project.regions[0].duration == 16
     assert window.project.regions[0].color == "#123456"
 
+    window.structure_panel.canvas.rename_requested.emit(selected.id, "Intro 2")
+    window.structure_panel.canvas.color_requested.emit(selected.id, "#bbf7d0")
+    assert window.project.regions[0].label == "Intro 2"
+    assert window.project.regions[0].color == "#bbf7d0"
+
     window.structure_panel.delete_button.click()
     assert all(region.id != selected.id for region in window.project.regions)
 
