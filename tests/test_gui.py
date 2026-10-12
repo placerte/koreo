@@ -144,6 +144,27 @@ def test_structure_selection_can_seek_section_or_block(qtbot: QtBot) -> None:
     assert seek_spy.at(1)[0] == Fraction(32)
 
 
+def test_structure_rows_support_multi_copy_and_paste(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    panel = window.structure_panel
+    panel.generate_button.click()
+    sections = [r for r in window.project.regions if r.parent_id is None]
+    panel.canvas.selected_ids = {sections[1].id, sections[2].id}
+
+    panel._copy_selected()
+    panel.canvas.selected_ids = {sections[3].id}
+    panel._paste_after_selected()
+
+    pasted_sections = sorted(
+        (r for r in window.project.regions if r.parent_id is None),
+        key=lambda region: region.start,
+    )
+    assert [region.label for region in pasted_sections[4:6]] == ["A", "A"]
+    assert len(pasted_sections) == 8
+    assert len(panel.canvas.selected_ids) == 2
+
+
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:
     window = MainWindow(representative_project())
     qtbot.addWidget(window)

@@ -14,7 +14,9 @@ from koreo.domain.structure import (
     delete_section,
     generate_aaba,
     insert_section_after,
+    paste_sections,
     resize_block,
+    section_patterns,
     update_section,
 )
 from koreo.fixtures import representative_project
@@ -91,6 +93,24 @@ def test_insert_section_shifts_later_rows() -> None:
         region for region in inserted.regions if region.id == sections[1].id
     )
     assert shifted_a.start == 48
+
+
+def test_copy_paste_sections_preserves_order_and_independent_blocks() -> None:
+    project = generate_aaba(representative_project())
+    sections = tuple(region for region in project.regions if region.parent_id is None)
+    patterns = section_patterns(project, (sections[1].id, sections[2].id))
+
+    pasted = paste_sections(project, patterns, sections[2].id)
+    pasted_sections = tuple(
+        sorted(
+            (region for region in pasted.regions if region.parent_id is None),
+            key=lambda region: region.start,
+        )
+    )
+
+    assert [region.label for region in pasted_sections[3:5]] == ["A", "A"]
+    assert pasted_sections[3].id not in {sections[1].id, sections[2].id}
+    assert pasted_sections[5].start == sections[3].start + 64
 
 
 @pytest.mark.parametrize("duration", [0, -1])

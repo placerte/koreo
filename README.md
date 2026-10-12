@@ -111,7 +111,9 @@ insert sections. Section totals are derived from their children, and timing
 changes ripple later rows. After setting the waveform grid Anchor, select the
 exact Structure block that starts there and align it without moving the
 waveform Anchor. The Structure play cursor and waveform backgrounds then share
-the calibrated mapping.
+the calibrated mapping, and the aligned block has a prominent Anchor edge.
+Ctrl-click selects multiple section rows; Ctrl+C and Ctrl+V copy them with
+their count blocks and paste independent copies after the selected row.
 
 Run the complete automated checks:
 

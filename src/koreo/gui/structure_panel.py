@@ -7,11 +7,13 @@ from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
     QIcon,
+    QKeySequence,
     QMouseEvent,
     QPaintEvent,
     QPainter,
     QPen,
     QPixmap,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
 from koreo.domain.models import MusicalRegion, Project
 from koreo.domain.structure import (
     SECTION_PALETTE,
+    SectionPattern,
     StructureEditError,
     add_block,
     append_section,
@@ -36,7 +39,9 @@ from koreo.domain.structure import (
     delete_section,
     generate_aaba,
     insert_section_after,
+    paste_sections,
     resize_block,
+    section_patterns,
     update_section,
 )
 
@@ -63,6 +68,7 @@ class StructureCanvas(QWidget):
         super().__init__()
         self.project = project
         self.selected_id: str | None = None
+        self.selected_ids: set[str] = set()
         self.selected_block_id: str | None = None
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
@@ -110,7 +116,18 @@ class StructureCanvas(QWidget):
                 if block.id == self.selected_block_id:
                     painter.setPen(QPen(QColor("#2563eb"), 3))
                     painter.drawRect(rect.adjusted(2, 2, -2, -2))
-            if region.id == self.selected_id:
+                if (
+                    self.project.calibration is not None
+                    and block.start == self.project.calibration.anchor_beat
+                ):
+                    painter.setPen(QPen(QColor("#15803d"), 5))
+                    painter.drawLine(
+                        round(rect.left()),
+                        round(rect.top()),
+                        round(rect.left()),
+                        round(rect.bottom()),
+                    )
+            if region.id in self.selected_ids:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
                 painter.drawRect(QRectF(1, y + 1, self.width() - 2, _ROW_HEIGHT - 2))
             if (
@@ -176,6 +193,13 @@ class StructureCanvas(QWidget):
             return
         region = rows[row]
         self.selected_id = region.id
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if region.id in self.selected_ids:
+                self.selected_ids.remove(region.id)
+            else:
+                self.selected_ids.add(region.id)
+        else:
+            self.selected_ids = {region.id}
         clicked_block = self._block_at(region, round(event.position().x()))
         self.selected_block_id = clicked_block.id if clicked_block is not None else None
         self.selected.emit(region.id)
@@ -233,6 +257,8 @@ class StructureCanvas(QWidget):
             return
         region = rows[row]
         self.selected_id = region.id
+        if region.id not in self.selected_ids:
+            self.selected_ids = {region.id}
         self.selected.emit(region.id)
         menu = QMenu(self)
         insert_action = menu.addAction("Insert section below")
@@ -330,6 +356,7 @@ class StructurePanel(QWidget):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
+        self._clipboard: tuple[SectionPattern, ...] = ()
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_area = QScrollArea()
@@ -397,9 +424,21 @@ class StructurePanel(QWidget):
         layout.addWidget(self.status)
         self.scroll_area.setWidget(content)
         outer_layout.addWidget(self.scroll_area)
+        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
+        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.copy_shortcut.activated.connect(self._copy_selected)
+        self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self)
+        self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.paste_shortcut.activated.connect(self._paste_after_selected)
 
     def set_project(self, project: Project) -> None:
         self.project = project
+        existing = {region.id for region in project.regions}
+        self.canvas.selected_ids.intersection_update(existing)
+        if self.canvas.selected_id not in existing:
+            self.canvas.selected_id = None
+        if self.canvas.selected_block_id not in existing:
+            self.canvas.selected_block_id = None
         self.canvas.set_project(project)
 
     def set_playhead_beat(self, beat: Fraction | None) -> None:
@@ -424,6 +463,41 @@ class StructurePanel(QWidget):
 
     def _position_toggle_changed(self, enabled: bool) -> None:
         self.canvas.selection_positions_playhead = enabled
+
+    def _copy_selected(self) -> None:
+        if not self.canvas.selected_ids:
+            self.status.setText("Select one or more sections to copy.")
+            return
+        self._clipboard = section_patterns(
+            self.project, tuple(self.canvas.selected_ids)
+        )
+        self.status.setText(f"Copied {len(self._clipboard)} section(s).")
+
+    def _paste_after_selected(self) -> None:
+        if not self._clipboard:
+            self.status.setText("Copy one or more sections first.")
+            return
+        selected = [
+            region
+            for region in self.project.regions
+            if region.parent_id is None and region.id in self.canvas.selected_ids
+        ]
+        if not selected:
+            self.status.setText("Select the row after which to paste.")
+            return
+        after = max(selected, key=lambda region: region.start)
+        previous_ids = {region.id for region in self.project.regions}
+        pasted = paste_sections(self.project, self._clipboard, after.id)
+        new_ids = {
+            region.id
+            for region in pasted.regions
+            if region.parent_id is None and region.id not in previous_ids
+        }
+        self._commit(pasted)
+        self.canvas.selected_ids = new_ids
+        self.canvas.selected_id = next(iter(new_ids), None)
+        self.canvas.update()
+        self.status.setText(f"Pasted {len(new_ids)} section(s).")
 
     def _insert(self, section_id: str) -> None:
         self._commit(

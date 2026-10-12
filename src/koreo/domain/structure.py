@@ -1,6 +1,6 @@
 """Pure hierarchical song-structure generation and editing."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from fractions import Fraction
 
 from koreo.domain.models import MusicalRegion, Project
@@ -12,6 +12,15 @@ AABA_LABELS = ("Intro", "A", "A", "B", "A", "Outro")
 
 class StructureEditError(ValueError):
     """Raised when a structure edit cannot produce a valid project."""
+
+
+@dataclass(frozen=True, slots=True)
+class SectionPattern:
+    """Clipboard-safe section content without project-specific identities."""
+
+    label: str
+    color: str | None
+    block_durations: tuple[Fraction, ...]
 
 
 def generate_aaba(project: Project, duration: int = 32) -> Project:
@@ -193,6 +202,78 @@ def rebase_structure(project: Project, anchor_beat: Fraction) -> Project:
         replace(region, start=region.start - anchor_beat) for region in project.regions
     )
     return _validated(replace(project, regions=regions))
+
+
+def section_patterns(
+    project: Project, section_ids: tuple[str, ...]
+) -> tuple[SectionPattern, ...]:
+    """Snapshot selected sections in song order for copying."""
+
+    selected = set(section_ids)
+    return tuple(
+        SectionPattern(
+            section.label,
+            section.color,
+            tuple(block.duration for block in _blocks(project, section.id)),
+        )
+        for section in _sections(project)
+        if section.id in selected
+    )
+
+
+def paste_sections(
+    project: Project,
+    patterns: tuple[SectionPattern, ...],
+    after_id: str,
+) -> Project:
+    """Paste independent section copies after one existing row."""
+
+    if not patterns:
+        return project
+    after = _section(project, after_id)
+    start = after.end
+    total = sum(
+        (sum(pattern.block_durations, Fraction(0)) for pattern in patterns),
+        Fraction(0),
+    )
+    if total <= 0:
+        raise StructureEditError("Copied sections must contain positive blocks")
+    shifted = _shift_from(project.regions, start, total)
+    additions: list[MusicalRegion] = []
+    cursor = start
+    for pattern in patterns:
+        duration = sum(pattern.block_durations, Fraction(0))
+        section_id = _available_id(
+            replace(project, regions=shifted + tuple(additions)), 1
+        )
+        section = MusicalRegion(
+            section_id,
+            pattern.label,
+            cursor,
+            duration,
+            color=pattern.color,
+        )
+        additions.append(section)
+        block_start = cursor
+        for block_duration in pattern.block_durations:
+            block_id = _available_id(
+                replace(project, regions=shifted + tuple(additions)),
+                1,
+                f"{section_id}-block-",
+            )
+            additions.append(
+                MusicalRegion(
+                    block_id,
+                    "8 count",
+                    block_start,
+                    block_duration,
+                    parent_id=section_id,
+                    count_restart=False,
+                )
+            )
+            block_start += block_duration
+        cursor += duration
+    return _validated(replace(project, regions=shifted + tuple(additions)))
 
 
 def _new_blocks(

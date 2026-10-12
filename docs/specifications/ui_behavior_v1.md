@@ -89,6 +89,12 @@ revises them.
 - An explicit **Selection moves playhead** toggle controls whether clicking a
   section row/label or count block seeks to that exact item's start. With the
   toggle off, selection changes editing focus only.
+- The block whose start is aligned to the waveform Anchor has a distinct,
+  heavier Anchor-colored left border.
+- A plain click selects one section; Ctrl-click toggles sections into or out
+  of a multi-selection. Ctrl+C snapshots selected sections and all their child
+  blocks. Ctrl+V inserts independent copies after the latest selected row,
+  preserves copied song order, and ripples later structure.
 - Each visible count block is a real child region. The section total is the
   sum of its children; adding, deleting, or resizing a child ripples all later
   sections by the exact duration delta.

@@ -42,6 +42,11 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
 11. Enable **Selection moves playhead**. Click a section label and then a count
     block; each should seek to that exact item's start. Disable the toggle and
     confirm the same clicks only select for editing.
+12. Confirm the block aligned to the waveform Anchor has a heavy green left
+    edge. Ctrl-click several section rows, press Ctrl+C, select a destination
+    row, and press Ctrl+V. Independent copies with the same child-block
+    patterns should appear immediately after the destination in original
+    order, shifting later rows forward.
 
 ## Deliberate boundary
 
