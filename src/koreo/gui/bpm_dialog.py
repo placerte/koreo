@@ -58,8 +58,11 @@ class BpmDialog(QDialog):
         self.playhead.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.playhead.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.time_label = QLabel("0:00.000 / 0:00.000")
-        self.time_label.setMinimumWidth(
+        self.time_label.setFixedWidth(
             self.time_label.fontMetrics().horizontalAdvance("99:59.999 / 99:59.999")
+        )
+        self.time_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         playhead_row.addWidget(self.playhead, 1)
         playhead_row.addWidget(self.time_label)

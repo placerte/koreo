@@ -72,6 +72,8 @@ def test_spacebar_taps_bpm_and_cancel_stops_playback(qtbot: QtBot) -> None:
 
     assert dialog.result_bpm == Fraction(120)
     assert dialog._tap_tempo.tap_count == 2
+    assert dialog.time_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert dialog.time_label.minimumWidth() == dialog.time_label.maximumWidth()
     dialog.reject()
     assert dialog.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState
 
