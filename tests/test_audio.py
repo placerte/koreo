@@ -63,5 +63,5 @@ def test_real_qt_decoder_extracts_bounded_waveform_peaks(
 
     peaks = result.args[0]
     assert peaks
-    assert len(peaks) <= 1_200
+    assert len(peaks) <= 30_000
     assert all(-1.0 <= minimum <= maximum <= 1.0 for minimum, maximum in peaks)

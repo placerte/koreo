@@ -109,6 +109,10 @@ def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
     window.waveform.zoom_in()
     assert window.waveform.zoom_factor == 1.25
     assert window.waveform._time_to_x(15_000) == original_x
+    window.waveform.set_follow_playhead(False)
+    assert not window.follow_button.isChecked()
+    window.follow_button.setChecked(True)
+    assert window.waveform.follow_playhead
     window.waveform.zoom_to_fit()
     assert window.waveform.zoom_factor == 1.0
     assert window.waveform.view_start_ms == 0

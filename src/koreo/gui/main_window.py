@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QProgressBar,
     QSlider,
     QTabWidget,
     QVBoxLayout,
@@ -96,8 +97,14 @@ class MainWindow(QMainWindow):
         transport_layout.addLayout(controls)
 
         self.waveform = WaveformWidget()
+        self.waveform.set_bpm(float(self.tempo_bpm))
         transport_layout.addWidget(self.waveform)
         calibration_controls = QHBoxLayout()
+        self.processing_indicator = QProgressBar()
+        self.processing_indicator.setRange(0, 0)
+        self.processing_indicator.setFormat("Processing song…")
+        self.processing_indicator.setMaximumWidth(170)
+        self.processing_indicator.setVisible(False)
         self.zoom_out_button = QPushButton("−")
         self.zoom_out_button.setToolTip("Zoom waveform out")
         self.zoom_out_button.clicked.connect(self.waveform.zoom_out)
@@ -107,6 +114,12 @@ class MainWindow(QMainWindow):
         self.zoom_fit_button = QPushButton("Fit")
         self.zoom_fit_button.setToolTip("Show the full waveform")
         self.zoom_fit_button.clicked.connect(self.waveform.zoom_to_fit)
+        self.follow_button = QPushButton("Follow")
+        self.follow_button.setCheckable(True)
+        self.follow_button.setChecked(True)
+        self.follow_button.setToolTip("Keep the playhead at a fixed offset")
+        self.follow_button.toggled.connect(self.waveform.set_follow_playhead)
+        self.waveform.follow_changed.connect(self.follow_button.setChecked)
         self.anchor_button = QPushButton("Set playhead as beat 0")
         self.anchor_button.clicked.connect(self._set_anchor)
         self.anchor_label = QLabel("Beat 0 not set")
@@ -116,10 +129,12 @@ class MainWindow(QMainWindow):
         self.refine_button = QPushButton("Match beat to playhead")
         self.refine_button.setEnabled(False)
         self.refine_button.clicked.connect(self._set_calibration_point)
+        calibration_controls.addWidget(self.processing_indicator)
         calibration_controls.addWidget(QLabel("Waveform zoom:"))
         calibration_controls.addWidget(self.zoom_out_button)
         calibration_controls.addWidget(self.zoom_in_button)
         calibration_controls.addWidget(self.zoom_fit_button)
+        calibration_controls.addWidget(self.follow_button)
         calibration_controls.addSpacing(12)
         calibration_controls.addWidget(self.anchor_button)
         calibration_controls.addWidget(self.anchor_label)
@@ -162,6 +177,8 @@ class MainWindow(QMainWindow):
         self.project = replace(self.project, calibration=None)
         self.waveform.set_peaks(())
         self.waveform.set_anchor(None)
+        self.waveform.zoom_to_fit()
+        self.waveform.set_follow_playhead(True)
         self.anchor_label.setText("Beat 0 not set")
         self.refine_button.setEnabled(False)
         self.song_label.setText(
@@ -172,8 +189,9 @@ class MainWindow(QMainWindow):
         self.tap_bpm_button.setEnabled(True)
         self.transport.setVisible(True)
         self.playback.load(source.path)
-        self._waveform_extractor.extract(source.path)
+        self.processing_indicator.setVisible(True)
         self.song_label.setText(f"{self.song_label.text()} · building waveform…")
+        self._waveform_extractor.extract(source.path)
 
     def _audio_failed(self, message: str) -> None:
         if self.audio_source is None:
@@ -193,11 +211,13 @@ class MainWindow(QMainWindow):
             self.bpm_edit.setText(
                 f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
             )
+            self.waveform.set_bpm(float(self.tempo_bpm))
             self._update_calibration_bpm()
 
     def _manual_bpm_changed(self) -> None:
         try:
             self.tempo_bpm = parse_bpm(self.bpm_edit.text())
+            self.waveform.set_bpm(float(self.tempo_bpm))
             self._update_calibration_bpm()
         except CalibrationError:
             self.bpm_edit.setText(
@@ -232,12 +252,14 @@ class MainWindow(QMainWindow):
     def _waveform_ready(self, peaks: object) -> None:
         assert isinstance(peaks, tuple)
         self.waveform.set_peaks(peaks)
+        self.processing_indicator.setVisible(False)
         if self.audio_source is not None:
             self.song_label.setText(
                 f"{self.audio_source.display_name} — waveform ready"
             )
 
     def _waveform_failed(self, message: str) -> None:
+        self.processing_indicator.setVisible(False)
         self.song_label.setText(message)
 
     def _set_anchor(self) -> None:
@@ -264,6 +286,7 @@ class MainWindow(QMainWindow):
             return
         self.project = replace(self.project, calibration=calibration)
         self.tempo_bpm = calibration.bpm
+        self.waveform.set_bpm(float(self.tempo_bpm))
         self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
         self.anchor_label.setText(
             f"Beat 0 at {_format_ms(int(calibration.anchor_seconds * 1000))}; "

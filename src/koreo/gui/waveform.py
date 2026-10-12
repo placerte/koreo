@@ -1,6 +1,9 @@
-"""Zoomable waveform with shared playhead and anchor marker."""
+"""Zoomable waveform with beat grid, following playhead, and anchor marker."""
+
+import math
 
 from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Signal
 from PySide6.QtGui import (
     QColor,
     QMouseEvent,
@@ -18,14 +21,18 @@ _MAX_ZOOM = 64.0
 class WaveformWidget(QWidget):
     """Render normalized peak buckets against media time."""
 
+    follow_changed = Signal(bool)
+
     def __init__(self) -> None:
         super().__init__()
         self.peaks: tuple[tuple[float, float], ...] = ()
         self.duration_ms = 0
         self.position_ms = 0
         self.anchor_ms: int | None = None
+        self.bpm = 120.0
         self.zoom_factor = 1.0
         self.view_start_ms = 0.0
+        self.follow_playhead = True
         self._pan_x: float | None = None
         self.setMinimumHeight(150)
         self.setAccessibleName("Song waveform and playhead")
@@ -41,11 +48,31 @@ class WaveformWidget(QWidget):
 
     def set_position(self, position_ms: int) -> None:
         self.position_ms = max(position_ms, 0)
+        if self.follow_playhead and self.zoom_factor > 1.0:
+            self.view_start_ms = self.position_ms - self.visible_duration_ms * 0.35
+            self._clamp_view()
         self.update()
 
     def set_anchor(self, anchor_ms: int | None) -> None:
         self.anchor_ms = anchor_ms
         self.update()
+
+    def set_bpm(self, bpm: float) -> None:
+        """Set the constant-tempo grid spacing."""
+
+        if bpm > 0:
+            self.bpm = bpm
+            self.update()
+
+    def set_follow_playhead(self, enabled: bool) -> None:
+        """Enable or suspend automatic waveform scrolling."""
+
+        changed = self.follow_playhead != enabled
+        self.follow_playhead = enabled
+        if enabled:
+            self.set_position(self.position_ms)
+        if changed:
+            self.follow_changed.emit(enabled)
 
     @property
     def visible_duration_ms(self) -> float:
@@ -78,11 +105,13 @@ class WaveformWidget(QWidget):
             return
         focus_time = self._x_to_time(event.position().x())
         factor = 1.25 if event.angleDelta().y() > 0 else 0.8
+        self.set_follow_playhead(False)
         self._zoom_at_time(factor, focus_time, event.position().x())
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton:
+            self.set_follow_playhead(False)
             self._pan_x = event.position().x()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
@@ -113,6 +142,7 @@ class WaveformWidget(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#f8fafc"))
         center = self.height() / 2
+        self._paint_beat_grid(painter)
         painter.setPen(QPen(QColor("#94a3b8"), 1))
         painter.drawLine(0, int(center), self.width(), int(center))
         if self.peaks and self.duration_ms > 0:
@@ -147,6 +177,22 @@ class WaveformWidget(QWidget):
                 painter.setPen(QPen(QColor("#dc2626"), 2))
                 painter.drawLine(int(playhead_x), 0, int(playhead_x), self.height())
         painter.end()
+
+    def _paint_beat_grid(self, painter: QPainter) -> None:
+        if self.duration_ms <= 0 or self.bpm <= 0:
+            return
+        beat_ms = 60_000 / self.bpm
+        origin_ms = float(self.anchor_ms or 0)
+        first_beat = math.ceil((self.view_start_ms - origin_ms) / beat_ms)
+        last_time = self.view_start_ms + self.visible_duration_ms
+        beat = first_beat
+        while origin_ms + beat * beat_ms <= last_time:
+            time_ms = origin_ms + beat * beat_ms
+            x = self._time_to_x(time_ms)
+            major = beat % 4 == 0
+            painter.setPen(QPen(QColor(99, 102, 241, 70 if major else 35), 1))
+            painter.drawLine(int(x), 0, int(x), self.height())
+            beat += 1
 
     def _preferred_zoom_time(self) -> float:
         if self._is_visible(self.position_ms):

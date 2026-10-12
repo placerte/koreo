@@ -141,9 +141,7 @@ class WaveformExtractor(QObject):
         if self._settled:
             return
         buffer = self._decoder.read()
-        peak = _mixed_peak(buffer)
-        if peak is not None:
-            self._peaks.append(peak)
+        self._peaks.extend(_mixed_peaks(buffer))
 
     def _finish(self) -> None:
         if self._settled:
@@ -152,7 +150,7 @@ class WaveformExtractor(QObject):
         if not self._peaks:
             self.failed.emit("Waveform decoding produced no audio samples.")
             return
-        self.succeeded.emit(_reduce_peaks(self._peaks, 1_200))
+        self.succeeded.emit(_reduce_peaks(self._peaks, 30_000))
 
     def _error(self) -> None:
         if self._settled:
@@ -162,13 +160,13 @@ class WaveformExtractor(QObject):
         self.failed.emit(f"Waveform decoding failed: {detail}.")
 
 
-def _mixed_peak(buffer: QAudioBuffer) -> tuple[float, float] | None:
+def _mixed_peaks(buffer: QAudioBuffer) -> tuple[tuple[float, float], ...]:
     if not buffer.isValid() or buffer.byteCount() <= 0:
-        return None
+        return ()
     audio_format = buffer.format()
     channels = audio_format.channelCount()
     if channels <= 0:
-        return None
+        return ()
     raw = bytes(buffer.constData())
     sample_format = audio_format.sampleFormat()
     if sample_format == QAudioFormat.SampleFormat.UInt8:
@@ -181,7 +179,7 @@ def _mixed_peak(buffer: QAudioBuffer) -> tuple[float, float] | None:
         }
         details = format_codes.get(sample_format)
         if details is None:
-            return None
+            return ()
         code, scale = details
         size = struct.calcsize(code)
         usable = len(raw) - len(raw) % size
@@ -193,8 +191,13 @@ def _mixed_peak(buffer: QAudioBuffer) -> tuple[float, float] | None:
         for index in range(0, len(samples) - channels + 1, channels)
     ]
     if not mixed:
-        return None
-    return max(-1.0, min(mixed)), min(1.0, max(mixed))
+        return ()
+    frames_per_peak = max(1, audio_format.sampleRate() // 100)
+    peaks: list[tuple[float, float]] = []
+    for start in range(0, len(mixed), frames_per_peak):
+        group = mixed[start : start + frames_per_peak]
+        peaks.append((max(-1.0, min(group)), min(1.0, max(group))))
+    return tuple(peaks)
 
 
 def _reduce_peaks(

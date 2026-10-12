@@ -73,3 +73,23 @@ active handoff without changing its milestone boundary.
 - **Impact:** File selection starts extraction and visibly reports progress.
   Playback does not generate the waveform. Navigation changes presentation
   state only and preserves song, calibration, and playback position.
+
+## KOR-DEC-005 — Waveform detail, grid, processing, and following
+
+- **Date:** 2026-10-11
+- **Context:** A second monkey-testing pass approved zoom but found the
+  full-song envelope visually coarse, requested processing feedback and a BPM
+  grid, and proposed a fixed playhead while the waveform moves.
+- **Decision:** Extract approximately 10 ms peak windows (bounded to 30,000
+  buckets), show an indeterminate Processing song indicator, and paint a faint
+  constant-tempo grid behind the waveform. Before calibration the grid is
+  provisionally offset from media time zero; setting beat 0 immediately moves
+  it to the anchor. Follow mode keeps the red playhead at a stable 35% offset
+  while zoomed. Wheel zoom or middle-drag suspends following, and a visible
+  Follow toggle resumes it.
+- **Rationale:** Higher-resolution source peaks remain useful under zoom,
+  visible progress explains asynchronous decoding, and a moving waveform
+  makes beat alignment easier to inspect without removing manual navigation.
+- **Impact:** Waveform, BPM grid, anchor, and playhead continue to share one
+  time transform. Follow state is presentation-only and never changes media
+  position or calibration.
