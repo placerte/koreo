@@ -92,9 +92,15 @@ revises them.
 - The block whose start is aligned to the waveform Anchor has a distinct,
   heavier Anchor-colored left border.
 - A plain click selects one section; Ctrl-click toggles sections into or out
-  of a multi-selection. Ctrl+C snapshots selected sections and all their child
+  of a multi-selection. Shift-click fills the contiguous range from the
+  selection anchor. Ctrl+C snapshots selected sections and all their child
   blocks. Ctrl+V inserts independent copies after the latest selected row,
   preserves copied song order, and ripples later structure.
+- Ctrl+Z restores the project state before the latest Structure command.
+  Delete removes the selected block when one has focus, otherwise all selected
+  section rows. Enter inserts an 8-count block after the selected block, or at
+  the end of the current row when only a row is selected. Text-entry controls
+  retain their normal editing interpretation of these keys.
 - Each visible count block is a real child region. The section total is the
   sum of its children; adding, deleting, or resizing a child ripples all later
   sections by the exact duration delta.

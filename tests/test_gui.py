@@ -165,6 +165,61 @@ def test_structure_rows_support_multi_copy_and_paste(qtbot: QtBot) -> None:
     assert len(panel.canvas.selected_ids) == 2
 
 
+def test_structure_keyboard_commands_add_delete_and_undo(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    panel = window.structure_panel
+    panel.generate_button.click()
+    sections = sorted(
+        (r for r in window.project.regions if r.parent_id is None),
+        key=lambda region: region.start,
+    )
+    first_block = next(
+        r for r in window.project.regions if r.parent_id == sections[0].id
+    )
+    panel.canvas.selected_ids = {sections[0].id}
+    panel.canvas.selected_id = sections[0].id
+    panel.canvas.selected_block_id = first_block.id
+
+    panel._add_count_at_selection()
+    assert (
+        next(r for r in window.project.regions if r.id == sections[0].id).duration == 40
+    )
+    panel._delete_selection()
+    assert (
+        next(r for r in window.project.regions if r.id == sections[0].id).duration == 32
+    )
+    panel._undo()
+    assert (
+        next(r for r in window.project.regions if r.id == sections[0].id).duration == 40
+    )
+
+
+def test_structure_ctrl_and_shift_row_selection(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    panel = window.structure_panel
+    panel.generate_button.click()
+    panel.canvas.resize(800, 400)
+
+    QTest.mouseClick(panel.canvas, Qt.MouseButton.LeftButton, pos=QPoint(30, 20))
+    QTest.mouseClick(
+        panel.canvas,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        QPoint(30, 128),
+    )
+    assert len(panel.canvas.selected_ids) == 3
+
+    QTest.mouseClick(
+        panel.canvas,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier,
+        QPoint(30, 236),
+    )
+    assert len(panel.canvas.selected_ids) == 4
+
+
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:
     window = MainWindow(representative_project())
     qtbot.addWidget(window)

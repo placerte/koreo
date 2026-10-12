@@ -12,8 +12,10 @@ from koreo.domain.structure import (
     append_section,
     delete_block,
     delete_section,
+    delete_sections,
     generate_aaba,
     insert_section_after,
+    insert_block_after,
     paste_sections,
     resize_block,
     section_patterns,
@@ -111,6 +113,26 @@ def test_copy_paste_sections_preserves_order_and_independent_blocks() -> None:
     assert [region.label for region in pasted_sections[3:5]] == ["A", "A"]
     assert pasted_sections[3].id not in {sections[1].id, sections[2].id}
     assert pasted_sections[5].start == sections[3].start + 64
+
+
+def test_insert_block_after_and_multi_delete_ripple_exactly() -> None:
+    project = generate_aaba(representative_project())
+    sections = tuple(region for region in project.regions if region.parent_id is None)
+    blocks = tuple(r for r in project.regions if r.parent_id == sections[0].id)
+
+    inserted = insert_block_after(project, blocks[0].id)
+    inserted_sections = sorted(
+        (r for r in inserted.regions if r.parent_id is None), key=lambda r: r.start
+    )
+    assert inserted_sections[0].duration == 40
+    assert inserted_sections[1].start == 40
+
+    deleted = delete_sections(inserted, (sections[1].id, sections[3].id))
+    remaining = sorted(
+        (r for r in deleted.regions if r.parent_id is None), key=lambda r: r.start
+    )
+    assert [r.label for r in remaining] == ["Intro", "A", "A", "Outro"]
+    assert [r.start for r in remaining] == [0, 40, 72, 104]
 
 
 @pytest.mark.parametrize("duration", [0, -1])

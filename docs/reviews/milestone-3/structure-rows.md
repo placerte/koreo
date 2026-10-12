@@ -47,6 +47,12 @@ Open the **Structure** tab, leave **Section beats** at 32, and click
     row, and press Ctrl+V. Independent copies with the same child-block
     patterns should appear immediately after the destination in original
     order, shifting later rows forward.
+13. Plain-click a row, then Shift-click a later row and confirm the complete
+    range is selected. Ctrl-click another row to toggle it independently.
+14. With a block selected, press Enter to insert an 8-count block after it and
+    Delete to remove the selected block. With only rows selected, Enter appends
+    to the current row and Delete removes all selected rows. Ctrl+Z should
+    reverse the latest Structure command each time.
 
 ## Deliberate boundary
 

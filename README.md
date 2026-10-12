@@ -114,6 +114,9 @@ waveform Anchor. The Structure play cursor and waveform backgrounds then share
 the calibrated mapping, and the aligned block has a prominent Anchor edge.
 Ctrl-click selects multiple section rows; Ctrl+C and Ctrl+V copy them with
 their count blocks and paste independent copies after the selected row.
+Shift-click fills a row range, Ctrl+Z undoes the latest Structure command,
+Delete removes the focused block or selected rows, and Enter inserts an
+8-count block at the current selection.
 
 Run the complete automated checks:
 

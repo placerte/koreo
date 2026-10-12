@@ -106,6 +106,37 @@ def add_block(project: Project, section_id: str, duration: int = 8) -> Project:
     return _validated(replace(project, regions=shifted + (block,)))
 
 
+def insert_block_after(project: Project, block_id: str, duration: int = 8) -> Project:
+    """Insert a sibling block after ``block_id`` and ripple later timing."""
+
+    if duration <= 0:
+        raise StructureEditError("Block duration must be positive")
+    block = _block(project, block_id)
+    parent = _section(project, block.parent_id or "")
+    shifted: list[MusicalRegion] = []
+    for region in project.regions:
+        if region.id == parent.id:
+            shifted.append(replace(region, duration=region.duration + duration))
+        elif region.parent_id == parent.id and region.start >= block.end:
+            shifted.append(replace(region, start=region.start + duration))
+        elif region.parent_id is None and region.start >= parent.end:
+            shifted.append(replace(region, start=region.start + duration))
+        elif _belongs_to_later_section(project, region, parent.end):
+            shifted.append(replace(region, start=region.start + duration))
+        else:
+            shifted.append(region)
+    new_id = _available_id(project, 1, f"{parent.id}-block-")
+    inserted = MusicalRegion(
+        new_id,
+        "8 count",
+        block.end,
+        Fraction(duration),
+        parent_id=parent.id,
+        count_restart=False,
+    )
+    return _validated(replace(project, regions=tuple(shifted) + (inserted,)))
+
+
 def resize_block(project: Project, block_id: str, duration: int) -> Project:
     """Resize one block and ripple following boundaries."""
 
@@ -193,6 +224,29 @@ def delete_section(project: Project, region_id: str) -> Project:
     return _validated(
         replace(project, regions=_shift_from(kept, section.end, -section.duration))
     )
+
+
+def delete_sections(project: Project, section_ids: tuple[str, ...]) -> Project:
+    """Delete several sections atomically and close each resulting gap."""
+
+    selected = set(section_ids)
+    sections = [section for section in _sections(project) if section.id in selected]
+    if len(sections) != len(selected):
+        missing = selected - {section.id for section in sections}
+        raise StructureEditError(f"Unknown top-level section: {sorted(missing)[0]}")
+    removed = selected | {
+        region.id for region in project.regions if region.parent_id in selected
+    }
+    regions: list[MusicalRegion] = []
+    for region in project.regions:
+        if region.id in removed:
+            continue
+        shift = sum(
+            (section.duration for section in sections if section.end <= region.start),
+            Fraction(0),
+        )
+        regions.append(replace(region, start=region.start - shift))
+    return _validated(replace(project, regions=tuple(regions)))
 
 
 def rebase_structure(project: Project, anchor_beat: Fraction) -> Project:

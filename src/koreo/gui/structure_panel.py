@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QHBoxLayout,
     QLabel,
@@ -37,8 +38,10 @@ from koreo.domain.structure import (
     append_section,
     delete_block,
     delete_section,
+    delete_sections,
     generate_aaba,
     insert_section_after,
+    insert_block_after,
     paste_sections,
     resize_block,
     section_patterns,
@@ -70,11 +73,13 @@ class StructureCanvas(QWidget):
         self.selected_id: str | None = None
         self.selected_ids: set[str] = set()
         self.selected_block_id: str | None = None
+        self.selection_anchor_id: str | None = None
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: QLineEdit | None = None
         self.playhead_beat: Fraction | None = None
         self.selection_positions_playhead = False
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumHeight(300)
 
     def set_project(self, project: Project) -> None:
@@ -129,7 +134,8 @@ class StructureCanvas(QWidget):
                     )
             if region.id in self.selected_ids:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
-                painter.drawRect(QRectF(1, y + 1, self.width() - 2, _ROW_HEIGHT - 2))
+                selected_width = _LABEL_WIDTH + float(region.duration) * _BEAT_WIDTH
+                painter.drawRect(QRectF(1, y + 1, selected_width, _ROW_HEIGHT - 2))
             if (
                 self.playhead_beat is not None
                 and region.start <= self.playhead_beat < region.end
@@ -161,6 +167,7 @@ class StructureCanvas(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus()
             row = int(event.position().y() // _ROW_HEIGHT)
             rows = self._rows()
             boundary_block: str | None = None
@@ -193,13 +200,25 @@ class StructureCanvas(QWidget):
             return
         region = rows[row]
         self.selected_id = region.id
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            anchor_id = self.selection_anchor_id or region.id
+            row_ids = [item.id for item in rows]
+            anchor_index = row_ids.index(anchor_id) if anchor_id in row_ids else row
+            start, end = sorted((anchor_index, row))
+            ranged = set(row_ids[start : end + 1])
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.selected_ids.update(ranged)
+            else:
+                self.selected_ids = ranged
+        elif event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if region.id in self.selected_ids:
                 self.selected_ids.remove(region.id)
             else:
                 self.selected_ids.add(region.id)
+            self.selection_anchor_id = region.id
         else:
             self.selected_ids = {region.id}
+            self.selection_anchor_id = region.id
         clicked_block = self._block_at(region, round(event.position().x()))
         self.selected_block_id = clicked_block.id if clicked_block is not None else None
         self.selected.emit(region.id)
@@ -357,6 +376,7 @@ class StructurePanel(QWidget):
         super().__init__()
         self.project = project
         self._clipboard: tuple[SectionPattern, ...] = ()
+        self._history: list[Project] = []
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_area = QScrollArea()
@@ -430,6 +450,20 @@ class StructurePanel(QWidget):
         self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self)
         self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.paste_shortcut.activated.connect(self._paste_after_selected)
+        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self.undo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.undo_shortcut.activated.connect(self._undo)
+        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)
+        self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.delete_shortcut.activated.connect(self._delete_selection)
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
+        self.enter_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.enter_shortcut.activated.connect(self._add_count_at_selection)
+        self.keypad_enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
+        self.keypad_enter_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.keypad_enter_shortcut.activated.connect(self._add_count_at_selection)
 
     def set_project(self, project: Project) -> None:
         self.project = project
@@ -445,9 +479,17 @@ class StructurePanel(QWidget):
         self.canvas.playhead_beat = beat
         self.canvas.update()
 
-    def _commit(self, project: Project) -> None:
+    def _commit(self, project: Project, *, record_history: bool = True) -> None:
+        if record_history and project != self.project:
+            self._history.append(self.project)
         self.set_project(project)
         self.project_changed.emit(project)
+
+    def remember_project(self, project: Project) -> None:
+        """Make an externally coordinated Structure change undoable."""
+
+        if not self._history or self._history[-1] != project:
+            self._history.append(project)
 
     def _generate(self) -> None:
         self._commit(generate_aaba(self.project, self.template_duration.value()))
@@ -463,6 +505,55 @@ class StructurePanel(QWidget):
 
     def _position_toggle_changed(self, enabled: bool) -> None:
         self.canvas.selection_positions_playhead = enabled
+
+    def _editing_text(self) -> bool:
+        return isinstance(QApplication.focusWidget(), (QLineEdit, QSpinBox))
+
+    def _undo(self) -> None:
+        if self._editing_text():
+            return
+        if not self._history:
+            self.status.setText("Nothing to undo.")
+            return
+        previous = self._history.pop()
+        self._commit(previous, record_history=False)
+        self.status.setText("Undid the last Structure command.")
+
+    def _delete_selection(self) -> None:
+        if self._editing_text():
+            return
+        block_id = self.canvas.selected_block_id
+        if block_id is not None:
+            self._delete_block(block_id)
+            self.canvas.selected_block_id = None
+            return
+        if self.canvas.selected_ids:
+            self._commit(delete_sections(self.project, tuple(self.canvas.selected_ids)))
+            self.canvas.selected_ids.clear()
+            self.canvas.selected_id = None
+            self.status.setText("Deleted selected section(s).")
+
+    def _add_count_at_selection(self) -> None:
+        if self._editing_text():
+            return
+        previous_ids = {region.id for region in self.project.regions}
+        if self.canvas.selected_block_id is not None:
+            project = insert_block_after(self.project, self.canvas.selected_block_id)
+        elif self.canvas.selected_id in self.canvas.selected_ids:
+            assert self.canvas.selected_id is not None
+            project = add_block(self.project, self.canvas.selected_id)
+        else:
+            self.status.setText("Select a section or count block first.")
+            return
+        self._commit(project)
+        new_blocks = [
+            region
+            for region in project.regions
+            if region.parent_id is not None and region.id not in previous_ids
+        ]
+        self.canvas.selected_block_id = new_blocks[0].id
+        self.canvas.update()
+        self.status.setText("Added an 8-count block.")
 
     def _copy_selected(self) -> None:
         if not self.canvas.selected_ids:

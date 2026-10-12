@@ -323,6 +323,7 @@ class MainWindow(QMainWindow):
             return
         block = next(region for region in self.project.regions if region.id == block_id)
         anchor_seconds = calibration.anchor_seconds
+        self.structure_panel.remember_project(self.project)
         self.project = rebase_structure(self.project, block.start)
         assert self.project.calibration is not None
         assert self.project.calibration.anchor_seconds == anchor_seconds
