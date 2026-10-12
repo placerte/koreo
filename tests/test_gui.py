@@ -105,6 +105,13 @@ def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
     window.waveform.set_duration(60_000)
     window.waveform.set_peaks(((-0.5, 0.75), (-1.0, 1.0), (-0.25, 0.4)))
     window._position_changed(15_000)
+    original_x = window.waveform._time_to_x(15_000)
+    window.waveform.zoom_in()
+    assert window.waveform.zoom_factor == 1.25
+    assert window.waveform._time_to_x(15_000) == original_x
+    window.waveform.zoom_to_fit()
+    assert window.waveform.zoom_factor == 1.0
+    assert window.waveform.view_start_ms == 0
     window._set_anchor()
 
     image = window.waveform.grab().toImage()

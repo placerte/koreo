@@ -56,3 +56,20 @@ active handoff without changing its milestone boundary.
 - **Impact:** Reuse this rule for main transport, waveform, calibration,
   preview, and export-progress time displays. Tests should verify fixed
   geometry and alignment where practical.
+
+## KOR-DEC-004 — Waveform navigation must remain dynamic
+
+- **Date:** 2026-10-11
+- **Context:** Monkey testing identified that full-song waveform scale was too
+  coarse for placing beat 0 and questioned whether the display was a static
+  image generated on playback.
+- **Decision:** Keep the waveform as a dynamically painted widget generated
+  asynchronously immediately after file selection. Provide pointer-centered
+  wheel zoom, middle-button horizontal pan, and explicit zoom in/out/fit
+  controls. Waveform peaks, playhead, and anchor share the same visible-time
+  transform.
+- **Rationale:** Precise calibration needs inspectable waveform detail without
+  raster scaling drift or coupling extraction to playback.
+- **Impact:** File selection starts extraction and visibly reports progress.
+  Playback does not generate the waveform. Navigation changes presentation
+  state only and preserves song, calibration, and playback position.
