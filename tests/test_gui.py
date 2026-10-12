@@ -6,6 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication
@@ -15,6 +16,7 @@ from koreo.audio import AudioSource
 from koreo.fixtures import representative_project
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.main_window import MainWindow
+from koreo.persistence import load_project
 
 
 def test_window_renders_both_views_and_switches_without_mutation(qtbot: QtBot) -> None:
@@ -218,6 +220,27 @@ def test_structure_ctrl_and_shift_row_selection(qtbot: QtBot) -> None:
         QPoint(30, 236),
     )
     assert len(panel.canvas.selected_ids) == 4
+
+
+def test_main_window_saves_current_structure_and_tracks_dirty_state(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    destination = tmp_path / "saved.kro"
+    window.project_path = destination
+
+    window.structure_panel.generate_button.click()
+    assert window.dirty
+    assert window.windowTitle().endswith("*")
+    assert window._save()
+
+    loaded = load_project(destination, tmp_path / "extract")
+    assert loaded.project == window.project
+    assert not window.dirty
+    assert not window.windowTitle().endswith("*")
+    assert window.open_action.shortcut() == QKeySequence.StandardKey.Open
+    assert window.save_action.shortcut() == QKeySequence.StandardKey.Save
 
 
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:

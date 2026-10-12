@@ -3,8 +3,11 @@
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QApplication,
@@ -13,11 +16,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QProgressBar,
     QSlider,
     QSpinBox,
+    QStyle,
     QTabWidget,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +38,12 @@ from koreo.gui.structure_panel import StructurePanel
 from koreo.gui.timeline import TimelineView
 from koreo.gui.waveform import WaveformWidget
 from koreo.playback import PlaybackController
+from koreo.persistence import (
+    LoadedProject,
+    ProjectFileError,
+    load_project,
+    save_project,
+)
 from koreo.presentation.mapping import build_sheet, build_timeline
 
 
@@ -45,6 +57,11 @@ class MainWindow(QMainWindow):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
+        self.project_path: Path | None = None
+        self.dirty = False
+        self._extraction_directory: TemporaryDirectory[str] = TemporaryDirectory(
+            prefix="koreo-project-"
+        )
         self.audio_source: AudioSource | None = None
         self.tempo_bpm = Fraction(120)
         self._probe = AudioProbe(self)
@@ -196,8 +213,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.transport)
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
-        self.setWindowTitle(f"Koreo — {project.name}")
+        self._build_file_ui()
+        self._update_window_title()
         self.resize(1100, 700)
+
+    def _build_file_ui(self) -> None:
+        file_menu = self.menuBar().addMenu("&File")
+        assert file_menu is not None
+        self.open_action = QAction("&Open…", self)
+        self.open_action.setShortcut(QKeySequence.StandardKey.Open)
+        self.open_action.triggered.connect(self._open_project)
+        self.save_action = QAction("&Save", self)
+        self.save_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_action.triggered.connect(self._save)
+        self.save_as_action = QAction("Save &As…", self)
+        self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self.save_as_action.triggered.connect(self._save_as)
+        self.exit_action = QAction("E&xit", self)
+        self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        self.exit_action.triggered.connect(self.close)
+        file_menu.addActions([self.open_action, self.save_action, self.save_as_action])
+        file_menu.addSeparator()
+        file_menu.addAction(self.exit_action)
+
+        toolbar = QToolBar("Project", self)
+        toolbar.setObjectName("project_toolbar")
+        self.addToolBar(toolbar)
+        self.open_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+        )
+        self.save_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        )
+        toolbar.addAction(self.open_action)
+        toolbar.addAction(self.save_action)
 
     def _choose_song(self) -> None:
         selected, _ = QFileDialog.getOpenFileName(
@@ -252,6 +301,7 @@ class MainWindow(QMainWindow):
         self.processing_indicator.setVisible(True)
         self.song_label.setText(f"{self.song_label.text()} · building waveform…")
         self._waveform_extractor.extract(source.path)
+        self._mark_dirty()
 
     def _audio_failed(self, message: str) -> None:
         if self.audio_source is None:
@@ -273,12 +323,14 @@ class MainWindow(QMainWindow):
             )
             self.waveform.set_bpm(float(self.tempo_bpm))
             self._update_calibration_bpm()
+            self._mark_dirty()
 
     def _manual_bpm_changed(self) -> None:
         try:
             self.tempo_bpm = parse_bpm(self.bpm_edit.text())
             self.waveform.set_bpm(float(self.tempo_bpm))
             self._update_calibration_bpm()
+            self._mark_dirty()
         except CalibrationError:
             self.bpm_edit.setText(
                 f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
@@ -292,10 +344,12 @@ class MainWindow(QMainWindow):
             return
         self.project = replace(self.project, count_origin=origin)
         self._refresh_count_views()
+        self._mark_dirty()
 
     def _count_group_changed(self, group_size: int) -> None:
         self.project = replace(self.project, default_count_group=group_size)
         self._refresh_count_views()
+        self._mark_dirty()
 
     def _refresh_count_views(self) -> None:
         timeline_model = build_timeline(self.project)
@@ -313,6 +367,7 @@ class MainWindow(QMainWindow):
         self.project = project
         self._refresh_count_views()
         self._refresh_structure_mapping()
+        self._mark_dirty()
 
     def _anchor_structure_block(self, block_id: str) -> None:
         calibration = self.project.calibration
@@ -330,6 +385,7 @@ class MainWindow(QMainWindow):
         self.structure_panel.status.setText("Selected block starts at the grid Anchor.")
         self._refresh_count_views()
         self._refresh_structure_mapping()
+        self._mark_dirty()
 
     def _seek_to_structure_beat(self, beat: object) -> None:
         assert isinstance(beat, Fraction)
@@ -397,6 +453,7 @@ class MainWindow(QMainWindow):
         self.anchor_label.setText(f"Grid anchor at {_format_ms(anchor_ms)}")
         self.refine_button.setEnabled(True)
         self._refresh_structure_mapping()
+        self._mark_dirty()
 
     def _set_calibration_point(self) -> None:
         if self.project.calibration is None:
@@ -418,6 +475,7 @@ class MainWindow(QMainWindow):
             f"beat {beat} matched"
         )
         self._refresh_structure_mapping()
+        self._mark_dirty()
 
     def _update_calibration_bpm(self) -> None:
         if self.project.calibration is not None:
@@ -426,6 +484,7 @@ class MainWindow(QMainWindow):
                 calibration=self.project.calibration.with_bpm(self.tempo_bpm),
             )
             self._refresh_structure_mapping()
+            self._mark_dirty()
 
     def _refresh_structure_mapping(self) -> None:
         calibration = self.project.calibration
@@ -442,6 +501,137 @@ class MainWindow(QMainWindow):
             if region.parent_id is None
         )
         self.waveform.set_structure_bands(bands)
+
+    def _mark_dirty(self) -> None:
+        self.dirty = True
+        self._update_window_title()
+
+    def _set_clean(self) -> None:
+        self.dirty = False
+        self._update_window_title()
+
+    def _update_window_title(self) -> None:
+        marker = "*" if self.dirty else ""
+        name = self.project_path.name if self.project_path else self.project.name
+        self.setWindowTitle(f"Koreo — {name}{marker}")
+
+    def _save(self) -> bool:
+        if self.project_path is None:
+            return self._save_as()
+        try:
+            save_project(
+                self.project_path,
+                self.project,
+                self.tempo_bpm,
+                self.audio_source,
+            )
+        except (ProjectFileError, OSError) as error:
+            QMessageBox.critical(self, "Save failed", str(error))
+            return False
+        self._set_clean()
+        return True
+
+    def _save_as(self) -> bool:
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Koreo project",
+            str(self.project_path or Path(f"{self.project.name}.kro")),
+            "Koreo projects (*.kro)",
+        )
+        if not selected:
+            return False
+        path = Path(selected)
+        if path.suffix.lower() != ".kro":
+            path = path.with_suffix(".kro")
+        previous = self.project_path
+        self.project_path = path
+        if not self._save():
+            self.project_path = previous
+            self._update_window_title()
+            return False
+        return True
+
+    def _open_project(self) -> None:
+        if not self._confirm_discard_changes():
+            return
+        selected, _ = QFileDialog.getOpenFileName(
+            self, "Open Koreo project", "", "Koreo projects (*.kro)"
+        )
+        if not selected:
+            return
+        extraction = Path(self._extraction_directory.name) / uuid4().hex
+        try:
+            loaded = load_project(Path(selected), extraction)
+        except ProjectFileError as error:
+            QMessageBox.critical(self, "Open failed", str(error))
+            return
+        self._apply_loaded_project(loaded, Path(selected))
+
+    def _apply_loaded_project(self, loaded: LoadedProject, path: Path) -> None:
+        self.playback.stop()
+        self.project = loaded.project
+        self.tempo_bpm = loaded.tempo_bpm
+        self.project_path = path
+        self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
+        self.waveform.set_bpm(float(self.tempo_bpm))
+        self.count_origin_edit.setText(str(self.project.count_origin))
+        self.count_group_spin.blockSignals(True)
+        self.count_group_spin.setValue(self.project.default_count_group)
+        self.count_group_spin.blockSignals(False)
+        self._refresh_count_views()
+        calibration = self.project.calibration
+        anchor_ms = (
+            None if calibration is None else round(calibration.anchor_seconds * 1000)
+        )
+        self.waveform.set_anchor(anchor_ms)
+        self.anchor_label.setText(
+            "Grid anchor not set"
+            if anchor_ms is None
+            else f"Grid anchor at {_format_ms(anchor_ms)}"
+        )
+        self.refine_button.setEnabled(calibration is not None)
+        self._refresh_structure_mapping()
+        self.audio_source = loaded.audio_source
+        if loaded.audio_source is None:
+            self.song_label.setText("No song selected")
+            self.tap_bpm_button.setEnabled(False)
+            self.transport.setVisible(False)
+            self.waveform.set_peaks(())
+        else:
+            source = loaded.audio_source
+            self.song_label.setText(f"{source.display_name} — loading embedded audio…")
+            self.tap_bpm_button.setEnabled(True)
+            self.transport.setVisible(True)
+            self.playback.load(source.path)
+            self.processing_indicator.setVisible(True)
+            self._waveform_extractor.extract(source.path)
+        self._set_clean()
+
+    def _confirm_discard_changes(self) -> bool:
+        if not self.dirty:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "Unsaved changes",
+            "Save changes before continuing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            return self._save()
+        return True
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if not self._confirm_discard_changes():
+            event.ignore()
+            return
+        self.playback.stop()
+        self._extraction_directory.cleanup()
+        event.accept()
 
 
 def _format_ms(milliseconds: int) -> str:

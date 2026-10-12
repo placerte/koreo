@@ -101,6 +101,17 @@ revises them.
   section rows. Enter inserts an 8-count block after the selected block, or at
   the end of the current row when only a row is selected. Text-entry controls
   retain their normal editing interpretation of these keys.
+
+## Project persistence
+
+- File menu and toolbar actions expose Open, Save, and Save As; Ctrl+O and
+  Ctrl+S follow desktop conventions.
+- A trailing `*` in the window title means authoritative state differs from
+  the last successful save. Failed or cancelled saves never clear it.
+- Opening or closing dirty work offers Save, Discard, and Cancel. Cancel leaves
+  the current project untouched.
+- Load validation completes before current state is replaced. Reopened embedded
+  audio behaves like selected audio without depending on its original path.
 - Each visible count block is a real child region. The section total is the
   sum of its children; adding, deleting, or resizing a child ripples all later
   sections by the exact duration delta.

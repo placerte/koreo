@@ -104,6 +104,11 @@ Accepting applies the estimate; canceling or closing stops playback and
 discards the tap session. Key auto-repeat is ignored and three seconds of
 inactivity starts a new tapping session.
 
+Use the **File** menu, toolbar, Ctrl+S, or Ctrl+O to save and reopen portable
+`.kro` projects. The file embeds the selected audio and exact versioned project
+data; a `*` in the title marks unsaved changes. Only store or share embedded
+audio you have the rights to use.
+
 Open the **Structure** tab and choose **Generate AABA** to create the approved
 `Intro, A, A, B, A, Outro` starter. Each section begins with real 8-beat child
 blocks; resize their edges or use the row context menu to add/delete blocks and
@@ -150,6 +155,8 @@ Repository artifacts are the source of truth:
   execution contract;
 - [`docs/handoffs/handoff_261011_3.md`](docs/handoffs/handoff_261011_3.md) — authoritative contract for
   the initial Milestone 3 structure-row slice;
+- [`docs/handoffs/handoff_261012_5.md`](docs/handoffs/handoff_261012_5.md) — authoritative contract for
+  the first Milestone 5 persistence slice;
 - [`docs/progress_tracker.csv`](docs/progress_tracker.csv) — local mirror of
   milestone and issue progress;
 - [`docs/specifications/ui_behavior_v1.md`](docs/specifications/ui_behavior_v1.md) —
