@@ -3,10 +3,14 @@
 # [GH-7] [GH-8] [GH-9] [T-09]
 
 from fractions import Fraction
+from pathlib import Path
+
 from PySide6.QtCore import Qt
+from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 
+from koreo.audio import AudioSource
 from koreo.fixtures import representative_project
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.main_window import MainWindow
@@ -48,18 +52,28 @@ def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:
     assert sheet_image.height() > 0
 
 
-def test_focused_spacebar_taps_bpm_without_starting_playback(qtbot: QtBot) -> None:
+def test_spacebar_taps_bpm_and_cancel_stops_playback(qtbot: QtBot) -> None:
     timestamps = iter((0, 500_000_000))
-    dialog = BpmDialog(clock_ns=lambda: next(timestamps))
+    source = AudioSource(
+        display_name="song.wav",
+        path=Path("/tmp/song.wav"),
+        duration_seconds=Fraction(60),
+        sample_rate=44_100,
+        channel_count=2,
+        sample_format="Int16",
+    )
+    dialog = BpmDialog(source, clock_ns=lambda: next(timestamps))
     qtbot.addWidget(dialog)
     dialog.show()
     dialog.tap_button.setFocus()
 
-    QTest.keyClick(dialog.tap_button, Qt.Key.Key_Space)
-    QTest.keyClick(dialog.tap_button, Qt.Key.Key_Space)
+    QTest.keyClick(dialog, Qt.Key.Key_Space)
+    QTest.keyClick(dialog, Qt.Key.Key_Space)
 
-    assert dialog.bpm_edit.text() == "120"
+    assert dialog.result_bpm == Fraction(120)
     assert dialog._tap_tempo.tap_count == 2
+    dialog.reject()
+    assert dialog.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState
 
 
 def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
@@ -69,4 +83,14 @@ def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
     assert window.choose_song_button.text() == "Choose song…"
     assert window.song_label.text() == "No song selected"
     assert window.tap_bpm_button.text() == "Tap BPM"
+    assert not window.tap_bpm_button.isEnabled()
+    assert window.bpm_edit.text() == "120"
     assert window.tempo_bpm == Fraction(120)
+
+    window.bpm_edit.setText("118.75")
+    window.bpm_edit.editingFinished.emit()
+    assert window.tempo_bpm == Fraction(475, 4)
+
+    window.bpm_edit.setText("not a tempo")
+    window.bpm_edit.editingFinished.emit()
+    assert window.bpm_edit.text() == "118.75"

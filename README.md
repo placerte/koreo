@@ -91,10 +91,12 @@ uv run koreo
 ```
 
 The app opens directly into its main window. Use **Choose song…** to select an
-MP3 or WAV and wait for decoder confirmation. **Tap BPM** opens a small modal:
-type BPM directly, or focus its tap button and press Space at least twice. Key
-auto-repeat is ignored and three seconds of inactivity starts a new tapping
-session.
+MP3 or WAV and wait for decoder confirmation. Manual BPM is entered beside the
+song controls. **Tap BPM** then opens a focused modal that starts the song
+automatically, shows its playhead, and is immediately ready for Space taps.
+Accepting applies the estimate; canceling or closing stops playback and
+discards the tap session. Key auto-repeat is ignored and three seconds of
+inactivity starts a new tapping session.
 
 Run the complete automated checks:
 

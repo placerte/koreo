@@ -22,3 +22,21 @@ active handoff without changing its milestone boundary.
   Keep the already verified audio-decoder and exact calibration domain code,
   but recompose them across import, BPM, and structure-view UI. The current
   combined test build is not an accepted UX baseline.
+
+## KOR-DEC-002 — Tap modal owns a disposable playback session
+
+- **Date:** 2026-10-11
+- **Context:** Owner review refined the focused BPM interaction after the
+  import and tempo interfaces were separated.
+- **Decision:** The Tap BPM modal contains no editable numeric BPM field. It
+  starts the selected song automatically when shown, immediately accepts
+  Space taps, and displays a non-interactive playhead with stable-width time
+  text. Closing or canceling the modal stops playback and discards the tap
+  session; accepting applies its estimate. Manual BPM entry remains in the
+  main application UI.
+- **Rationale:** Tapping should be a focused listen-and-react task. Numeric
+  correction is a separate interaction, and modal playback must not outlive
+  the temporary tapping session.
+- **Impact:** The main window enables Tap BPM only after a song validates and
+  owns manual BPM entry. The modal owns its temporary media player and always
+  stops it on exit.

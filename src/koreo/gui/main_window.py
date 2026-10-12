@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QPushButton,
     QTabWidget,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from koreo.audio import AudioProbe, AudioSource
+from koreo.domain.calibration import CalibrationError, parse_bpm
 from koreo.domain.models import Project
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.sheet import SheetView
@@ -42,14 +44,19 @@ class MainWindow(QMainWindow):
         self.song_label = QLabel("No song selected")
         self.song_label.setWordWrap(True)
         self.tap_bpm_button = QPushButton("Tap BPM")
+        self.tap_bpm_button.setEnabled(False)
         self.tap_bpm_button.clicked.connect(self._open_bpm_dialog)
-        self.bpm_label = QLabel("120 BPM")
+        self.bpm_edit = QLineEdit("120")
+        self.bpm_edit.setAccessibleName("Manual BPM")
+        self.bpm_edit.setMaximumWidth(90)
+        self.bpm_edit.editingFinished.connect(self._manual_bpm_changed)
 
         song_bar = QHBoxLayout()
         song_bar.addWidget(self.choose_song_button)
         song_bar.addWidget(self.song_label, 1)
+        song_bar.addWidget(QLabel("BPM:"))
+        song_bar.addWidget(self.bpm_edit)
         song_bar.addWidget(self.tap_bpm_button)
-        song_bar.addWidget(self.bpm_label)
 
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Project view selector")
@@ -85,6 +92,7 @@ class MainWindow(QMainWindow):
             f"{source.channel_count} channel(s)"
         )
         self.choose_song_button.setEnabled(True)
+        self.tap_bpm_button.setEnabled(True)
 
     def _audio_failed(self, message: str) -> None:
         if self.audio_source is None:
@@ -96,9 +104,19 @@ class MainWindow(QMainWindow):
         self.choose_song_button.setEnabled(True)
 
     def _open_bpm_dialog(self) -> None:
-        dialog = BpmDialog(self.tempo_bpm, self)
+        if self.audio_source is None:
+            return
+        dialog = BpmDialog(self.audio_source, self)
         if dialog.exec() and dialog.result_bpm is not None:
             self.tempo_bpm = dialog.result_bpm
-            self.bpm_label.setText(
-                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".") + " BPM"
+            self.bpm_edit.setText(
+                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
+            )
+
+    def _manual_bpm_changed(self) -> None:
+        try:
+            self.tempo_bpm = parse_bpm(self.bpm_edit.text())
+        except CalibrationError:
+            self.bpm_edit.setText(
+                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
             )
