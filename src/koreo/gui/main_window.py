@@ -27,6 +27,7 @@ from koreo.domain.calibration import BeatCalibration, CalibrationError, parse_bp
 from koreo.domain.models import Project
 from koreo.gui.bpm_dialog import BpmDialog
 from koreo.gui.sheet import SheetView
+from koreo.gui.structure_panel import StructurePanel
 from koreo.gui.timeline import TimelineView
 from koreo.gui.waveform import WaveformWidget
 from koreo.playback import PlaybackController
@@ -62,6 +63,8 @@ class MainWindow(QMainWindow):
         self.play_pause_requested.connect(self._toggle_playback)
         self.timeline_view = TimelineView(build_timeline(project))
         self.sheet_view = SheetView(build_sheet(project))
+        self.structure_panel = StructurePanel(project)
+        self.structure_panel.project_changed.connect(self._structure_project_changed)
         self.choose_song_button = QPushButton("Choose song…")
         self.choose_song_button.clicked.connect(self._choose_song)
         self.song_label = QLabel("No song selected")
@@ -180,6 +183,7 @@ class MainWindow(QMainWindow):
         self.tabs.setAccessibleName("Project view selector")
         self.tabs.addTab(self.timeline_view, "Timeline")
         self.tabs.addTab(self.sheet_view, "Sheet")
+        self.tabs.addTab(self.structure_panel, "Structure")
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(song_bar)
@@ -297,6 +301,12 @@ class MainWindow(QMainWindow):
         self.sheet_view.model = sheet_model
         self.sheet_view.canvas.model = sheet_model
         self.sheet_view.canvas.update()
+        self.structure_panel.set_project(self.project)
+
+    def _structure_project_changed(self, project: object) -> None:
+        assert isinstance(project, Project)
+        self.project = project
+        self._refresh_count_views()
 
     def _toggle_playback(self) -> None:
         if self.playback.is_playing:

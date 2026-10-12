@@ -67,6 +67,21 @@ revises them.
   song-structure workflow, not the Tap BPM modal.
 - Final calibration UX is deferred until song-structure authoring exists.
 
+## Song structure panel
+
+- The song reads vertically with one sequential top-level section per row.
+- Rows display local beat grids but retain exact absolute song-beat intervals.
+- A normal AABA section defaults to 32 beats displayed as four 8-count blocks.
+- The first AABA generator creates `Intro, A, A, B, A, Outro`; all rows are
+  independent and contiguous, and defaults remain editable.
+- Adjacent rows rotate through a predefined accessible palette. Consecutive
+  8-count blocks alternate the row base color and a lighter derived shade.
+- A persistent blank row supports drag-to-create. Selection exposes exact
+  label, duration, and color editing plus deletion.
+- Variable lengths and incomplete blocks are valid. Visual centering of short
+  rows carries no timing meaning.
+- Reusable named template libraries and palette themes are future work.
+
 ## Count presentation
 
 - Local dance counts are primary. Continuous beat numbers are optional

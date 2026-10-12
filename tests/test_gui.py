@@ -24,9 +24,10 @@ def test_window_renders_both_views_and_switches_without_mutation(qtbot: QtBot) -
     qtbot.addWidget(window)
     window.show()
 
-    assert window.tabs.count() == 2
+    assert window.tabs.count() == 3
     assert window.tabs.tabText(0) == "Timeline"
     assert window.tabs.tabText(1) == "Sheet"
+    assert window.tabs.tabText(2) == "Structure"
     assert window.timeline_view.model.project_id == project.id
     assert window.sheet_view.model.project_id == project.id
 
@@ -36,6 +37,39 @@ def test_window_renders_both_views_and_switches_without_mutation(qtbot: QtBot) -
     assert window.tabs.currentWidget() is window.timeline_view
     assert window.project is project
     assert repr(project) == snapshot
+
+
+def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
+    window = MainWindow(representative_project())
+    qtbot.addWidget(window)
+    window.tabs.setCurrentWidget(window.structure_panel)
+
+    window.structure_panel.generate_button.click()
+
+    assert [region.label for region in window.project.regions] == [
+        "Intro",
+        "A",
+        "A",
+        "B",
+        "A",
+        "Outro",
+    ]
+    assert window.structure_panel.canvas.grab().toImage().isNull() is False
+
+    selected = window.project.regions[0]
+    window.structure_panel._select(selected.id)
+    window.structure_panel.canvas.selected_id = selected.id
+    window.structure_panel.label_edit.setText("Opening")
+    window.structure_panel.duration_edit.setValue(16)
+    window.structure_panel.color_edit.setText("#123456")
+    window.structure_panel.apply_button.click()
+
+    assert window.project.regions[0].label == "Opening"
+    assert window.project.regions[0].duration == 16
+    assert window.project.regions[0].color == "#123456"
+
+    window.structure_panel.delete_button.click()
+    assert all(region.id != selected.id for region in window.project.regions)
 
 
 def test_both_view_canvases_render_to_images(qtbot: QtBot) -> None:

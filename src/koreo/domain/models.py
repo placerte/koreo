@@ -24,6 +24,7 @@ class MusicalRegion:
     parent_id: str | None = None
     count_group: int | None = None
     count_restart: bool = True
+    color: str | None = None
 
     @property
     def end(self) -> Fraction:

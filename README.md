@@ -5,8 +5,9 @@ musical structure of a song. It is designed to show the same project in two
 complementary forms: a continuous timeline for detailed timing work and a
 wrapped choreography sheet for rehearsal and review.
 
-The V1 roadmap is defined and tracked on GitHub. Milestone 1 is complete, and
-the approved Milestone 2 audio/calibration workflow is under implementation.
+The V1 roadmap is defined and tracked on GitHub. Milestone 1 is complete,
+Milestone 2 audio/grid work is under review, and the first approved Milestone
+3 song-structure slice is available for assessment.
 
 ## Intended V1 workflow
 
@@ -29,18 +30,22 @@ The repository currently provides:
 
 - the product interview has been distilled into a reviewed specification
   checkpoint;
-- approved execution handoffs for Milestones 1 and 2;
+- approved execution handoffs for Milestones 1, 2, and the initial Milestone 3
+  slice;
 - all six V1 milestones and their work items are tracked as GitHub issues;
 - dependencies and parent/sub-issue relationships are recorded; and
 - the local progress tracker mirrors the hosted roadmap.
 
 - the completed Milestone 1 domain model and read-only dual-view prototype;
 - exact constant-tempo calibration and tap-tempo logic; and
-- an in-progress main application shell with MP3/WAV song selection and a
-  focused manual/tap BPM modal.
+- an application shell with MP3/WAV song selection, waveform playback,
+  manual/tap BPM, and shared count presentation; and
+- an initial Structure panel that generates and directly edits vertical,
+  beat-aligned AABA section rows.
 
 Milestone 2 work is coordinated under
-[issue #11](https://github.com/placerte/koreo/issues/11).
+[issue #11](https://github.com/placerte/koreo/issues/11). The current
+Milestone 3 slice is tracked by [issue #20](https://github.com/placerte/koreo/issues/20).
 
 ## Milestone 1
 
@@ -65,7 +70,8 @@ packaging. Its sole execution contract is
 | 5 | Project persistence and recovery | [#32](https://github.com/placerte/koreo/issues/32) |
 | 6 | Choreography sheet exports and integrated workflow | [#38](https://github.com/placerte/koreo/issues/38) |
 
-Milestone 2 has an approved handoff. Milestones 3–6 require their own approved
+Milestone 2 and the initial Milestone 3 structure-row slice have approved
+handoffs. Further Milestone 3 work and Milestones 4–6 require focused approved
 handoffs before implementation begins.
 
 ## Architecture and toolchain
@@ -98,6 +104,13 @@ Accepting applies the estimate; canceling or closing stops playback and
 discards the tap session. Key auto-repeat is ignored and three seconds of
 inactivity starts a new tapping session.
 
+Open the **Structure** tab and choose **Generate AABA** to create the approved
+`Intro, A, A, B, A, Outro` starter. Select a row to edit its label, exact beat
+duration, or base color. Drag across a row to resize it, drag on the persistent
+blank row to append a section, and use **Delete** to remove the selected row.
+This review slice deliberately leaves gaps visible and does not ripple later
+sections.
+
 Run the complete automated checks:
 
 ```console
@@ -128,6 +141,8 @@ Repository artifacts are the source of truth:
   execution contract;
 - [`docs/handoffs/handoff_261011_2.md`](docs/handoffs/handoff_261011_2.md) — authoritative Milestone 2
   execution contract;
+- [`docs/handoffs/handoff_261011_3.md`](docs/handoffs/handoff_261011_3.md) — authoritative contract for
+  the initial Milestone 3 structure-row slice;
 - [`docs/progress_tracker.csv`](docs/progress_tracker.csv) — local mirror of
   milestone and issue progress;
 - [`docs/specifications/ui_behavior_v1.md`](docs/specifications/ui_behavior_v1.md) —
