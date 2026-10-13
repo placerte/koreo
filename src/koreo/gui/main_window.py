@@ -6,33 +6,42 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QApplication,
-    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QProgressBar,
     QSlider,
     QSpinBox,
-    QStyle,
-    QTabWidget,
+    QTextEdit,
+    QPlainTextEdit,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from koreo.audio import AudioProbe, AudioSource, WaveformExtractor
-from koreo.domain.calibration import BeatCalibration, CalibrationError, parse_bpm
+from koreo.domain.calibration import BeatCalibration, parse_bpm
 from koreo.domain.models import Project
 from koreo.domain.structure import rebase_structure
+from koreo.export.creation_sheet import (
+    CreationSheetExportError,
+    export_creation_sheet_pdf,
+)
 from koreo.gui.bpm_dialog import BpmDialog
+from koreo.gui.icons import IconRole, semantic_icon
 from koreo.gui.sheet import SheetView
 from koreo.gui.structure_panel import StructurePanel
 from koreo.gui.timeline import TimelineView
@@ -45,14 +54,13 @@ from koreo.persistence import (
     save_project,
 )
 from koreo.presentation.mapping import build_sheet, build_timeline
+from koreo.settings import APPEARANCE
 
 
 class MainWindow(QMainWindow):
-    """Host Timeline and Sheet tabs for one immutable project instance."""
+    """Host the audio-backed Structure workspace for one project."""
 
     play_pause_requested = Signal()
-
-    # [GH-9] [S-M1-06] Both tabs derive from the same Project object.
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -87,54 +95,67 @@ class MainWindow(QMainWindow):
             self._anchor_structure_block
         )
         self.structure_panel.position_requested.connect(self._seek_to_structure_beat)
-        self.choose_song_button = QPushButton("Choose song…")
+        self.choose_song_button = self._icon_button(
+            IconRole.CHOOSE_AUDIO, "Choose audio track"
+        )
         self.choose_song_button.clicked.connect(self._choose_song)
         self.song_label = QLabel("No song selected")
         self.song_label.setWordWrap(True)
-        self.tap_bpm_button = QPushButton("Tap BPM")
+        self.tap_bpm_button = self._icon_button(IconRole.TAP_BPM, "Tap BPM")
         self.tap_bpm_button.setEnabled(False)
         self.tap_bpm_button.clicked.connect(self._open_bpm_dialog)
-        self.bpm_edit = QLineEdit("120")
+        self.bpm_edit = QDoubleSpinBox()
         self.bpm_edit.setAccessibleName("Manual BPM")
-        self.bpm_edit.setMaximumWidth(90)
+        self.bpm_edit.setRange(1.0, 999.99)
+        self.bpm_edit.setDecimals(2)
+        self.bpm_edit.setSingleStep(0.5)
+        self.bpm_edit.setValue(120.0)
+        self.bpm_edit.setMaximumWidth(76)
         self.bpm_edit.editingFinished.connect(self._manual_bpm_changed)
-        self.continuous_counts = QCheckBox("Continuous beat numbers")
-        self.continuous_counts.toggled.connect(
-            self.timeline_view.set_show_continuous_counts
-        )
-        self.continuous_counts.toggled.connect(
-            self.sheet_view.set_show_continuous_counts
+        self.project_name_edit = QLineEdit(project.name)
+        self.project_name_edit.setAccessibleName("Project name")
+        title_font = self.project_name_edit.font()
+        title_font.setPointSizeF(title_font.pointSizeF() + 4)
+        title_font.setBold(True)
+        self.project_name_edit.setFont(title_font)
+        self.project_name_edit.setMinimumWidth(320)
+        self.project_name_edit.setMaximumWidth(520)
+        self.project_name_edit.editingFinished.connect(self._project_name_changed)
+        self.project_name_edit.returnPressed.connect(self.project_name_edit.clearFocus)
+        header_bar = QHBoxLayout()
+        header_bar.addWidget(QLabel("Project:"))
+        header_bar.addWidget(self.project_name_edit)
+        header_bar.addStretch(1)
+        self.song_settings_button = self._icon_button(
+            IconRole.SONG_SETTINGS, "Advanced song settings"
         )
 
-        song_bar = QHBoxLayout()
-        song_bar.addWidget(self.choose_song_button)
-        song_bar.addWidget(self.song_label, 1)
-        song_bar.addWidget(QLabel("BPM:"))
-        song_bar.addWidget(self.bpm_edit)
-        song_bar.addWidget(self.tap_bpm_button)
-
-        count_bar = QHBoxLayout()
-        count_bar.addWidget(QLabel("Count origin:"))
-        self.count_origin_edit = QLineEdit(str(project.count_origin))
-        self.count_origin_edit.setMaximumWidth(80)
-        self.count_origin_edit.editingFinished.connect(self._count_origin_changed)
-        count_bar.addWidget(self.count_origin_edit)
-        count_bar.addWidget(QLabel("Default group:"))
+        self.song_settings_dialog = QDialog(self)
+        self.song_settings_dialog.setWindowTitle("Advanced song settings")
+        self.song_settings_dialog.setModal(True)
+        settings_layout = QFormLayout(self.song_settings_dialog)
+        self.count_origin_edit = QSpinBox()
+        self.count_origin_edit.setRange(-4096, 4096)
+        self.count_origin_edit.setValue(int(project.count_origin))
+        self.count_origin_edit.valueChanged.connect(self._count_origin_changed)
+        settings_layout.addRow("Count origin:", self.count_origin_edit)
         self.count_group_spin = QSpinBox()
         self.count_group_spin.setRange(1, 64)
         self.count_group_spin.setValue(project.default_count_group)
         self.count_group_spin.valueChanged.connect(self._count_group_changed)
-        count_bar.addWidget(self.count_group_spin)
-        count_bar.addWidget(self.continuous_counts)
-        count_bar.addStretch(1)
+        settings_layout.addRow("Default count group:", self.count_group_spin)
+        settings_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        settings_buttons.rejected.connect(self.song_settings_dialog.reject)
+        settings_layout.addRow(settings_buttons)
+        self.song_settings_button.clicked.connect(self.song_settings_dialog.open)
 
         self.transport = QWidget()
         transport_layout = QVBoxLayout(self.transport)
         transport_layout.setContentsMargins(0, 0, 0, 0)
         controls = QHBoxLayout()
-        self.play_button = QPushButton("Play")
+        self.play_button = self._icon_button(IconRole.PLAY, "Play")
         self.play_button.clicked.connect(self._toggle_playback)
-        self.stop_button = QPushButton("Stop")
+        self.stop_button = self._icon_button(IconRole.STOP, "Stop")
         self.stop_button.clicked.connect(self.playback.stop)
         self.seek_slider = QSlider(Qt.Orientation.Horizontal)
         self.seek_slider.setRange(0, 0)
@@ -162,60 +183,84 @@ class MainWindow(QMainWindow):
         self.processing_indicator.setFormat("Processing song…")
         self.processing_indicator.setMaximumWidth(170)
         self.processing_indicator.setVisible(False)
-        self.zoom_out_button = QPushButton("−")
-        self.zoom_out_button.setToolTip("Zoom waveform out")
+        self.zoom_out_button = self._icon_button(IconRole.ZOOM_OUT, "Zoom waveform out")
         self.zoom_out_button.clicked.connect(self.waveform.zoom_out)
-        self.zoom_in_button = QPushButton("+")
-        self.zoom_in_button.setToolTip("Zoom waveform in")
+        self.zoom_in_button = self._icon_button(IconRole.ZOOM_IN, "Zoom waveform in")
         self.zoom_in_button.clicked.connect(self.waveform.zoom_in)
-        self.zoom_fit_button = QPushButton("Fit")
-        self.zoom_fit_button.setToolTip("Show the full waveform")
+        self.zoom_fit_button = self._icon_button(
+            IconRole.ZOOM_FIT, "Fit the full waveform"
+        )
         self.zoom_fit_button.clicked.connect(self.waveform.zoom_to_fit)
-        self.follow_button = QPushButton("Follow")
-        self.follow_button.setCheckable(True)
+        self.follow_button = self._icon_button(
+            IconRole.FOLLOW_PLAYHEAD, "Follow playhead", checkable=True
+        )
         self.follow_button.setChecked(True)
         self.follow_button.setToolTip("Keep the playhead at a fixed offset")
         self.follow_button.toggled.connect(self.waveform.set_follow_playhead)
         self.waveform.follow_changed.connect(self.follow_button.setChecked)
-        self.anchor_button = QPushButton("Set playhead as grid anchor")
+        self.section_labels_toggle = self._icon_button(
+            IconRole.SECTION_LABELS, "Show section labels", checkable=True
+        )
+        self.section_labels_toggle.setChecked(APPEARANCE.show_waveform_section_labels)
+        self.section_labels_toggle.setToolTip(
+            "Show song-structure section names on the waveform"
+        )
+        self.section_labels_toggle.toggled.connect(
+            self.waveform.set_show_structure_labels
+        )
+        self.anchor_button = self._icon_button(
+            IconRole.WAVEFORM_ANCHOR, "Set playhead as grid Anchor"
+        )
         self.anchor_button.clicked.connect(self._set_anchor)
-        self.anchor_label = QLabel("Grid anchor not set")
-        self.refine_beat_edit = QLineEdit()
-        self.refine_beat_edit.setPlaceholderText("Later beat, e.g. 128")
-        self.refine_beat_edit.setMaximumWidth(150)
-        self.refine_button = QPushButton("Match beat to playhead")
-        self.refine_button.setEnabled(False)
-        self.refine_button.clicked.connect(self._set_calibration_point)
+        self.anchor_label = QLabel("—")
+        self.anchor_label.setToolTip("Grid Anchor time")
+        calibration_controls.addWidget(self.choose_song_button)
+        calibration_controls.addWidget(self.song_label, 1)
         calibration_controls.addWidget(self.processing_indicator)
-        calibration_controls.addWidget(QLabel("Waveform zoom:"))
+        calibration_controls.addWidget(self._tool_separator())
         calibration_controls.addWidget(self.zoom_out_button)
         calibration_controls.addWidget(self.zoom_in_button)
         calibration_controls.addWidget(self.zoom_fit_button)
         calibration_controls.addWidget(self.follow_button)
-        calibration_controls.addSpacing(12)
+        calibration_controls.addWidget(self.section_labels_toggle)
+        calibration_controls.addWidget(self._tool_separator())
+        calibration_controls.addWidget(QLabel("BPM:"))
+        calibration_controls.addWidget(self.bpm_edit)
+        calibration_controls.addWidget(self.tap_bpm_button)
         calibration_controls.addWidget(self.anchor_button)
         calibration_controls.addWidget(self.anchor_label)
-        calibration_controls.addStretch(1)
-        calibration_controls.addWidget(self.refine_beat_edit)
-        calibration_controls.addWidget(self.refine_button)
+        calibration_controls.addWidget(self._tool_separator())
+        calibration_controls.addWidget(self.song_settings_button)
         transport_layout.addLayout(calibration_controls)
-        self.transport.setVisible(False)
-
-        self.tabs = QTabWidget()
-        self.tabs.setAccessibleName("Project view selector")
-        self.tabs.addTab(self.timeline_view, "Timeline")
-        self.tabs.addTab(self.sheet_view, "Sheet")
-        self.tabs.addTab(self.structure_panel, "Structure")
+        self.transport.setVisible(True)
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.addLayout(song_bar)
-        layout.addLayout(count_bar)
+        layout.addLayout(header_bar)
         layout.addWidget(self.transport)
-        layout.addWidget(self.tabs, 1)
+        layout.addWidget(self.structure_panel, 1)
         self.setCentralWidget(central)
         self._build_file_ui()
         self._update_window_title()
         self.resize(1100, 700)
+
+    def _icon_button(
+        self, role: IconRole, name: str, *, checkable: bool = False
+    ) -> QToolButton:
+        """Create a compact control whose meaning is not tied to its artwork."""
+
+        button = QToolButton(self)
+        button.setIcon(semantic_icon(button, role))
+        button.setIconSize(QSize(20, 20))
+        button.setAccessibleName(name)
+        button.setToolTip(name)
+        button.setCheckable(checkable)
+        return button
+
+    def _tool_separator(self) -> QFrame:
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        return separator
 
     def _build_file_ui(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -229,24 +274,30 @@ class MainWindow(QMainWindow):
         self.save_as_action = QAction("Save &As…", self)
         self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.save_as_action.triggered.connect(self._save_as)
+        self.export_creation_sheet_action = QAction("Export Creation Sheet PDF…", self)
+        self.export_creation_sheet_action.triggered.connect(self._export_creation_sheet)
         self.exit_action = QAction("E&xit", self)
         self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self.exit_action.triggered.connect(self.close)
         file_menu.addActions([self.open_action, self.save_action, self.save_as_action])
+        file_menu.addAction(self.export_creation_sheet_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
 
-        toolbar = QToolBar("Project", self)
-        toolbar.setObjectName("project_toolbar")
-        self.addToolBar(toolbar)
+        self.project_toolbar = QToolBar("Project", self)
+        self.project_toolbar.setObjectName("project_toolbar")
+        self.project_toolbar.setMovable(False)
+        self.project_toolbar.setFloatable(False)
+        self.project_toolbar.setIconSize(QSize(20, 20))
+        self.addToolBar(self.project_toolbar)
         self.open_action.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+            semantic_icon(self.project_toolbar, IconRole.OPEN_PROJECT)
         )
         self.save_action.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+            semantic_icon(self.project_toolbar, IconRole.SAVE_PROJECT)
         )
-        toolbar.addAction(self.open_action)
-        toolbar.addAction(self.save_action)
+        self.project_toolbar.addAction(self.open_action)
+        self.project_toolbar.addAction(self.save_action)
 
     def _choose_song(self) -> None:
         selected, _ = QFileDialog.getOpenFileName(
@@ -254,6 +305,37 @@ class MainWindow(QMainWindow):
         )
         if selected:
             self.load_song(Path(selected))
+
+    def _export_creation_sheet(self) -> None:
+        suggested = (
+            self.project_path.with_suffix(".creation-sheet.pdf").name
+            if self.project_path is not None
+            else f"{self.project.name}.creation-sheet.pdf"
+        )
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Creation Sheet PDF",
+            suggested,
+            "PDF files (*.pdf)",
+        )
+        if not selected:
+            return
+        path = Path(selected)
+        if path.suffix.lower() != ".pdf":
+            path = path.with_suffix(".pdf")
+        project_filename = (
+            self.project_path.name
+            if self.project_path is not None
+            else "Unsaved project"
+        )
+        try:
+            export_creation_sheet_pdf(
+                self.project,
+                path,
+                project_filename=project_filename,
+            )
+        except (CreationSheetExportError, OSError) as error:
+            QMessageBox.critical(self, "Creation sheet export failed", str(error))
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         """Reserve Space for main-window playback across focused controls."""
@@ -268,6 +350,12 @@ class MainWindow(QMainWindow):
             and application is not None
             and application.activeModalWidget() is None
         ):
+            focused = application.focusWidget()
+            if isinstance(
+                focused,
+                (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox),
+            ):
+                return False
             if not event.isAutoRepeat():  # type: ignore[attr-defined]
                 self.play_pause_requested.emit()
             return True
@@ -288,18 +376,12 @@ class MainWindow(QMainWindow):
         self.waveform.set_anchor(None)
         self.waveform.zoom_to_fit()
         self.waveform.set_follow_playhead(True)
-        self.anchor_label.setText("Grid anchor not set")
-        self.refine_button.setEnabled(False)
-        self.song_label.setText(
-            f"{source.display_name} — {source.sample_rate} Hz, "
-            f"{source.channel_count} channel(s)"
-        )
+        self.anchor_label.setText("—")
+        self.song_label.setText(source.display_name)
         self.choose_song_button.setEnabled(True)
         self.tap_bpm_button.setEnabled(True)
-        self.transport.setVisible(True)
         self.playback.load(source.path)
         self.processing_indicator.setVisible(True)
-        self.song_label.setText(f"{self.song_label.text()} · building waveform…")
         self._waveform_extractor.extract(source.path)
         self._mark_dirty()
 
@@ -318,31 +400,32 @@ class MainWindow(QMainWindow):
         dialog = BpmDialog(self.audio_source, self)
         if dialog.exec() and dialog.result_bpm is not None:
             self.tempo_bpm = dialog.result_bpm
-            self.bpm_edit.setText(
-                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
-            )
+            self.bpm_edit.setValue(float(self.tempo_bpm))
             self.waveform.set_bpm(float(self.tempo_bpm))
             self._update_calibration_bpm()
             self._mark_dirty()
 
     def _manual_bpm_changed(self) -> None:
-        try:
-            self.tempo_bpm = parse_bpm(self.bpm_edit.text())
-            self.waveform.set_bpm(float(self.tempo_bpm))
-            self._update_calibration_bpm()
-            self._mark_dirty()
-        except CalibrationError:
-            self.bpm_edit.setText(
-                f"{float(self.tempo_bpm):.3f}".rstrip("0").rstrip(".")
-            )
+        self.tempo_bpm = parse_bpm(f"{self.bpm_edit.value():.2f}")
+        self.waveform.set_bpm(float(self.tempo_bpm))
+        self._update_calibration_bpm()
+        self._mark_dirty()
 
-    def _count_origin_changed(self) -> None:
-        try:
-            origin = Fraction(self.count_origin_edit.text().strip())
-        except (ValueError, ZeroDivisionError):
-            self.count_origin_edit.setText(str(self.project.count_origin))
+    def _project_name_changed(self) -> None:
+        name = self.project_name_edit.text().strip()
+        if not name:
+            self.project_name_edit.setText(self.project.name)
             return
-        self.project = replace(self.project, count_origin=origin)
+        if name == self.project.name:
+            self.project_name_edit.setText(name)
+            return
+        self.project = replace(self.project, name=name)
+        self.project_name_edit.setText(name)
+        self._refresh_count_views()
+        self._mark_dirty()
+
+    def _count_origin_changed(self, origin: int) -> None:
+        self.project = replace(self.project, count_origin=Fraction(origin))
         self._refresh_count_views()
         self._mark_dirty()
 
@@ -424,7 +507,12 @@ class MainWindow(QMainWindow):
         self._position_changed(self.playback.position)
 
     def _playback_state_changed(self, state: str) -> None:
-        self.play_button.setText("Pause" if state == "playing" else "Play")
+        playing = state == "playing"
+        name = "Pause" if playing else "Play"
+        role = IconRole.PAUSE if playing else IconRole.PLAY
+        self.play_button.setIcon(semantic_icon(self.play_button, role))
+        self.play_button.setAccessibleName(name)
+        self.play_button.setToolTip(name)
 
     def _playback_failed(self, message: str) -> None:
         self.song_label.setText(f"Playback error: {message}")
@@ -434,9 +522,7 @@ class MainWindow(QMainWindow):
         self.waveform.set_peaks(peaks)
         self.processing_indicator.setVisible(False)
         if self.audio_source is not None:
-            self.song_label.setText(
-                f"{self.audio_source.display_name} — waveform ready"
-            )
+            self.song_label.setText(self.audio_source.display_name)
 
     def _waveform_failed(self, message: str) -> None:
         self.processing_indicator.setVisible(False)
@@ -450,30 +536,7 @@ class MainWindow(QMainWindow):
         )
         self.project = replace(self.project, calibration=calibration)
         self.waveform.set_anchor(anchor_ms)
-        self.anchor_label.setText(f"Grid anchor at {_format_ms(anchor_ms)}")
-        self.refine_button.setEnabled(True)
-        self._refresh_structure_mapping()
-        self._mark_dirty()
-
-    def _set_calibration_point(self) -> None:
-        if self.project.calibration is None:
-            return
-        try:
-            beat = Fraction(self.refine_beat_edit.text().strip())
-            calibration = self.project.calibration.with_calibration_point(
-                beat, Fraction(self.playback.position, 1000)
-            )
-        except (ValueError, ZeroDivisionError, CalibrationError) as error:
-            self.anchor_label.setText(f"Refinement rejected: {error}")
-            return
-        self.project = replace(self.project, calibration=calibration)
-        self.tempo_bpm = calibration.bpm
-        self.waveform.set_bpm(float(self.tempo_bpm))
-        self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
-        self.anchor_label.setText(
-            f"Grid anchor at {_format_ms(int(calibration.anchor_seconds * 1000))}; "
-            f"beat {beat} matched"
-        )
+        self.anchor_label.setText(_format_ms(anchor_ms))
         self._refresh_structure_mapping()
         self._mark_dirty()
 
@@ -496,6 +559,7 @@ class MainWindow(QMainWindow):
                 round(calibration.seconds_at(region.start) * 1000),
                 round(calibration.seconds_at(region.end) * 1000),
                 region.color or "#bfdbfe",
+                region.label,
             )
             for region in self.project.regions
             if region.parent_id is None
@@ -546,6 +610,7 @@ class MainWindow(QMainWindow):
             path = path.with_suffix(".kro")
         previous = self.project_path
         self.project_path = path
+        self.project_name_edit.setText(self.project.name)
         if not self._save():
             self.project_path = previous
             self._update_window_title()
@@ -573,9 +638,12 @@ class MainWindow(QMainWindow):
         self.project = loaded.project
         self.tempo_bpm = loaded.tempo_bpm
         self.project_path = path
-        self.bpm_edit.setText(f"{float(self.tempo_bpm):.6f}".rstrip("0").rstrip("."))
+        self.project_name_edit.setText(self.project.name)
+        self.bpm_edit.setValue(float(self.tempo_bpm))
         self.waveform.set_bpm(float(self.tempo_bpm))
-        self.count_origin_edit.setText(str(self.project.count_origin))
+        self.count_origin_edit.blockSignals(True)
+        self.count_origin_edit.setValue(int(self.project.count_origin))
+        self.count_origin_edit.blockSignals(False)
         self.count_group_spin.blockSignals(True)
         self.count_group_spin.setValue(self.project.default_count_group)
         self.count_group_spin.blockSignals(False)
@@ -585,29 +653,22 @@ class MainWindow(QMainWindow):
             None if calibration is None else round(calibration.anchor_seconds * 1000)
         )
         self.waveform.set_anchor(anchor_ms)
-        self.anchor_label.setText(
-            "Grid anchor not set"
-            if anchor_ms is None
-            else f"Grid anchor at {_format_ms(anchor_ms)}"
-        )
-        self.refine_button.setEnabled(calibration is not None)
+        self.anchor_label.setText("—" if anchor_ms is None else _format_ms(anchor_ms))
         self._refresh_structure_mapping()
         self.audio_source = loaded.audio_source
         if loaded.audio_source is None:
             self.song_label.setText("No song selected")
             self.tap_bpm_button.setEnabled(False)
-            self.transport.setVisible(False)
             self.waveform.set_peaks(())
         else:
             source = loaded.audio_source
-            self.song_label.setText(f"{source.display_name} — loading embedded audio…")
+            self.song_label.setText(source.display_name)
             self.tap_bpm_button.setEnabled(True)
-            self.transport.setVisible(True)
             self.playback.load(source.path)
             if loaded.waveform_peaks:
                 self.waveform.set_peaks(loaded.waveform_peaks)
                 self.processing_indicator.setVisible(False)
-                self.song_label.setText(f"{source.display_name} — waveform ready")
+                self.song_label.setText(source.display_name)
             else:
                 self.processing_indicator.setVisible(True)
                 self._waveform_extractor.extract(source.path)

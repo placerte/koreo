@@ -9,22 +9,19 @@ from koreo.gui.main_window import MainWindow
 
 
 def main() -> int:
-    """Render both tabs and save their window captures."""
+    """Render the current Structure workspace and save its window capture."""
 
     # [GH-10] [I-06] Review evidence is captured from real Qt widgets.
     application = QApplication.instance() or QApplication([])
-    output_directory = Path("docs/reviews/milestone-1")
+    output_directory = Path("docs/reviews/milestone-3")
     output_directory.mkdir(parents=True, exist_ok=True)
     window = MainWindow(representative_project())
     window.show()
 
-    captures = ((0, "timeline.png"), (1, "sheet.png"))
-    for tab_index, filename in captures:
-        window.tabs.setCurrentIndex(tab_index)
-        application.processEvents()
-        destination = output_directory / filename
-        if not window.grab().save(str(destination), "PNG"):
-            raise RuntimeError(f"Could not save screenshot to {destination}")
+    application.processEvents()
+    destination = output_directory / "structure-current.png"
+    if not window.grab().save(str(destination), "PNG"):
+        raise RuntimeError(f"Could not save screenshot to {destination}")
 
     window.close()
     return 0

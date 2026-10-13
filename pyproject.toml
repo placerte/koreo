@@ -8,6 +8,8 @@ name = "koreo"
 version = "0.1.0"
 description = "A lightweight desktop editor for planning choreography"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "PySide6>=6.8",

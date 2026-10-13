@@ -1,3 +1,20 @@
 [appearance]
 # 1.0 keeps the base color; lower values blend progressively toward white.
-block_alternate_shade_factor = 0.9
+block_alternate_shade_factor = 0.8
+# 0.0 is opaque; 1.0 is completely transparent.
+waveform_region_transparency = 0.7
+# Canvas grid line opacities; count-group boundaries use the primary value.
+structure_grid_alpha = 0.12
+structure_primary_grid_alpha = 0.3
+# Ruler labels are independently configurable and initially twice as opaque.
+structure_grid_label_alpha = 0.24
+structure_primary_grid_label_alpha = 0.6
+
+[interaction]
+selection_moves_playhead = true
+show_waveform_section_labels = true
+
+[creation_sheet]
+page_size = "Letter"
+# Applies only to the writable block playground; headers remain fully opaque.
+playground_opacity = 0.25

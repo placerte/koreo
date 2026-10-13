@@ -185,10 +185,228 @@ active handoff without changing its milestone boundary.
   waveform-peak cache. Full-view painting aggregates peaks per pixel. Anchor
   locations use a shared glyph plus the existing strong Structure edge.
   Structure resize previews update continuously, blocks include beat ruler
-  ticks, and alternate shading uses the packaged `0.9` appearance setting.
+  ticks, and alternate shading uses the packaged `0.8` appearance setting.
 - **Rationale:** Calibration must work without starting playback, transport
   animation should remain smooth at full-song zoom, and direct manipulation
   must communicate its result before commit.
 - **Impact:** Cached peaks are disposable derived data and do not change the
   authoritative project model. A future framework must retain these observable
   responsiveness and feedback rules even if its rendering mechanism differs.
+
+## KOR-DEC-012 — Add lightweight structure annotations and timing context
+
+- **Date:** 2026-10-12
+- **Context:** Monkey testing showed that the Structure board needed brief
+  musical cues without turning count blocks into a full choreography editor,
+  plus clearer correspondence between rows and the waveform.
+- **Decision:** Count blocks accept inline annotations by double click while
+  keeping the count total visible. An optional `N: note` prefix marks count N
+  but renders only the note. Calibrated section rows show whole-second start
+  and end times. Waveform structure bands show section names and use a
+  configuration-driven transparency of `0.7` by default.
+- **Rationale:** These additions make musical landmarks quick to record and
+  relate the Structure board to audio while keeping exact timing authoritative
+  in the domain model.
+- **Impact:** Block labels remain ordinary persisted region labels. A future
+  GUI may render them differently but must preserve editing, marker syntax,
+  whole-second timing context, and configurable waveform transparency.
+
+## KOR-DEC-013 — Give text editing priority and add musical rulers
+
+- **Date:** 2026-10-12
+- **Context:** Global Space playback prevented ordinary spaces in text fields,
+  and the Structure and waveform canvases lacked sufficient positional context.
+- **Decision:** Focused text entry owns Space; inline Enter accepts and Escape
+  cancels. Structure selection moves the playhead by default through config.
+  Structure gains a beat ruler and configurable minor/primary grid opacities.
+  Its labels toggle between repeating local dance counts and continuous beats.
+  Major/minor label opacity is configured separately at twice the initial grid
+  opacity, and grid lines stop below the labels. The waveform gains adaptive
+  time and beat rulers. Annotated beat markers use elbow-style connector lines;
+  sources outside a label use the nearest left/right text anchor and one bend,
+  while an under-text source uses the bottom-center anchor and two bends. The
+  top text anchor is unused.
+- **Rationale:** Editing conventions must take priority while typing, while
+  persistent musical axes make direct placement and comparison predictable.
+- **Impact:** Future UI implementations must preserve this focus ownership and
+  ruler behavior even if their widgets and rendering APIs differ.
+
+## KOR-DEC-014 — Make waveform section labels an independent display layer
+
+- **Date:** 2026-10-12
+- **Context:** Adding waveform rulers obscured section names that had shared
+  the lower ruler area.
+- **Decision:** Section names render clear of both rulers and have an explicit
+  display toggle enabled by default through `show_waveform_section_labels`.
+  Toggling names does not affect structure-region backgrounds or project data.
+- **Rationale:** Labels and colored timing bands serve different visual needs
+  and should be independently controllable.
+- **Impact:** Future waveform renderers must preserve the independent label
+  layer and its default-visible toggle.
+
+## KOR-DEC-015 — Export a faded Structure creation sheet for handwriting
+
+- **Date:** 2026-10-12
+- **Context:** The owner needs a paper reference while trying choreography in
+  practice before the complete choreography-sheet export exists.
+- **Decision:** Export a narrow Structure creation-sheet PDF on configurable
+  Letter landscape pages. Fit the longest section horizontally, paginate rows,
+  and repeat the project title, project filename, and ruler. Keep all header
+  content fully opaque while fading only the block playground to `0.25` by
+  default. Exclude the Anchor and every other interactive overlay.
+- **Rationale:** A faint structural reference leaves physical handwriting
+  dominant without losing musical context.
+- **Impact:** Creation-sheet rendering is independent from the interactive
+  canvas and from the future full choreography PDF tracked by GitHub #42.
+
+## KOR-DEC-016 — Edit the project title in the main header
+
+- **Date:** 2026-10-12
+- **Context:** Creation sheets require an owner-controlled project title rather
+  than relying on fixture or file-derived names.
+- **Decision:** The main header exposes `Project.name` as an editable field.
+  Non-empty changes update authoritative state and dirty the project; empty
+  edits restore the current value. Save/load preserves the name and PDF export
+  consumes it directly.
+- **Rationale:** Naming is project metadata and should be established before
+  export without a separate settings workflow.
+- **Impact:** Future UI frameworks must provide an equally direct project-name
+  editor connected to persisted project state.
+
+## KOR-DEC-017 — Separate full-song arrangements from phrase forms
+
+- **Date:** 2026-10-12
+- **Context:** AABA describes a chorus form, not necessarily a complete swing
+  recording, and a single text generator button could not expose useful
+  alternatives compactly.
+- **Decision:** Use a split template button with an extended swing arrangement
+  as its default and separate menu groups for full-song arrangements and
+  phrase/forms. Provide AABA, ABAB, ABAC, ABBA, AAAA, AAB blues, AB, ABC, and
+  ABACA. The AAB blues form fixes each phrase at 16 beats. Manual drawing is
+  the Custom path. Resolve button artwork through a centralized semantic icon
+  role, and treat section colors as theme accent roles.
+- **Rationale:** Arrangement and form can now evolve independently, while the
+  compact control and semantic visual roles prepare the UI for theme support.
+- **Impact:** Future templates should declare whether they are arrangements or
+  phrase forms and any fixed musical length instead of embedding UI logic.
+
+## KOR-DEC-018 — Keep the editing surface compact and contextual
+
+- **Date:** 2026-10-12
+- **Context:** Prototype growth left long action labels, a duplicated Structure
+  property strip, and an exposed calibration-refinement experiment competing
+  with the song canvas for space.
+- **Decision:** Familiar high-frequency actions use palette-colored Lucide
+  outline icons behind semantic roles, with tooltips and accessible
+  names. Structure labels edit inline, while
+  color and deletion remain contextual; duration is derived from count blocks,
+  so the duplicate selected-row form is removed. Later-point calibration
+  refinement is deferred and hidden until its workflow is designed alongside
+  song structure. Obsolete widget-coupled tests are replaced with tests of the
+  current interaction signals and resulting project behavior.
+- **Rationale:** The canvas should dominate the workspace, and tests should
+  protect user behavior instead of preserving abandoned controls.
+- **Impact:** A future GUI must preserve semantic actions, accessibility, and
+  contextual editing, but may replace all artwork and widget classes through
+  its theme/icon provider.
+
+## KOR-DEC-019 — Consolidate setup around the Structure workspace
+
+- **Date:** 2026-10-12
+- **Context:** Monkey testing found that the top-level setup rows, read-only
+  Timeline/Sheet tabs, text checkboxes, and status suffixes competed with the
+  waveform and Structure canvas without helping the active workflow.
+- **Decision:** Structure is the sole visible prototype workspace. Audio,
+  decimal BPM, Tap BPM, waveform display toggles, zoom, Follow, and Anchor
+  actions share the waveform toolbar. Count origin and default group move to
+  an advanced song-settings dialog with numeric controls. Display and
+  selection options use accessible Lucide icon toggles. Successful waveform
+  loading shows the filename without a redundant “waveform ready” suffix, and
+  the Anchor glyph renders above ruler layers in the lower waveform area.
+- **Rationale:** The current product workflow is audio-first structure mapping;
+  controls should sit beside the object they affect and the canvas should own
+  most of the window.
+- **Impact:** Timeline and Sheet presentation code may remain as non-visible
+  groundwork, but it is not part of the current prototype UI. A future rewrite
+  should preserve the consolidated toolbar and advanced-setting hierarchy.
+
+## KOR-DEC-020 — Encode section length in structure templates
+
+- **Date:** 2026-10-12
+- **Context:** The standalone Section beats control appeared ineffective and
+  duplicated musical knowledge already represented by named presets. Reopening
+  a saved project also failed to refresh the visible project-name field.
+- **Decision:** Every structure preset owns its section length. Initial forms
+  use 32 beats except AAB blues, whose phrases use 16 beats. Remove the
+  standalone duration control; manually inserted sections retain a 32-beat
+  default and remain editable through their blocks. Loading a project always
+  synchronizes its persisted name into the main project-name editor. Advanced
+  song settings use Lucide's `flask-conical` icon alongside waveform tools.
+- **Rationale:** Presets should be complete musical definitions, and reopening
+  must visibly reproduce authoritative project metadata.
+- **Impact:** New templates must declare their section length explicitly.
+  Project persistence regression coverage includes the displayed title.
+
+## KOR-DEC-021 — Group waveform tools by task
+
+- **Date:** 2026-10-12
+- **Context:** The consolidated waveform toolbelt contained the right actions
+  but mixed song, display, calibration, and advanced controls in an unclear
+  order. Raw tapped BPM precision and verbose Anchor status added noise.
+- **Decision:** Order separator-bounded groups as song file, view/display,
+  BPM/Anchor, then Advanced options. BPM is a compact numeric spin box showing
+  two decimals while internal tap measurement may retain higher precision.
+  Anchor status shows only its media timestamp because the waveform marker
+  already identifies it.
+- **Rationale:** Spatial grouping communicates scope faster than labels, while
+  two BPM decimals are enough for deliberate human adjustment.
+- **Impact:** Future toolbars must preserve this grouping and concise display,
+  though exact widget geometry may change.
+
+## KOR-DEC-022 — Stabilize the project header and file toolbar
+
+- **Date:** 2026-10-12
+- **Context:** The project toolbar exposed an unnecessary drag handle and used
+  platform-dependent artwork, while the project name read like an ordinary
+  small input. BPM arrow adjustment was finer than useful for manual work.
+- **Decision:** Make the project toolbar fixed and non-floatable, using Lucide
+  `folder-open` and `save`. Present the editable project name as a wider bold
+  title. Set manual BPM arrow increments to `0.5` while retaining two-decimal
+  display and exact tap measurement internally.
+- **Rationale:** Stable placement and consistent icons reduce visual noise;
+  stronger title hierarchy improves project orientation.
+- **Impact:** These presentation and interaction details are required behavior
+  for future framework implementations.
+
+## KOR-DEC-023 — Add a fixed Structure board command toolbar
+
+- **Date:** 2026-10-12
+- **Context:** Structure controls scrolled out of view and implemented editing
+  commands were discoverable mainly through keyboard shortcuts or context
+  menus. The fixed beat width also limited navigation of longer structures.
+- **Decision:** Name the workspace the Structure board and keep its toolbar
+  outside the scroll viewport. Separate View from Edit commands. Provide
+  Lucide-icon actions for horizontal zoom out/in/fit, display modes, template
+  generation, add section, add 8-count block, undo, copy, paste, delete, and
+  Anchor alignment. Preserve ordinary wheel vertical scrolling; Ctrl+wheel
+  adjusts horizontal beat scale only.
+- **Rationale:** Persistent, grouped commands improve discovery while retaining
+  direct manipulation and established shortcuts.
+- **Impact:** Horizontal zoom is presentation state, not project data. Future
+  frameworks must preserve modifier ownership and fixed-toolbar behavior.
+
+## KOR-DEC-024 — Separate section and block creation shortcuts
+
+- **Date:** 2026-10-12
+- **Context:** Enter previously created an 8-count block, making the more
+  structural add-section command less immediate and leaving shortcut discovery
+  dependent on prior knowledge.
+- **Decision:** Enter creates a new section after the current selection, while
+  Ctrl+Enter creates an 8-count block after the selected block or at the end of
+  the selected row. Inline text editors retain Enter-to-accept. Tooltips show
+  established keyboard and pointer shortcuts in parentheses.
+- **Rationale:** The simpler key performs the larger, primary Structure action;
+  the modifier distinguishes editing within a section and visible hints make
+  both behaviors discoverable.
+- **Impact:** Future GUI implementations must preserve these command semantics
+  independently from their widget or framework-level shortcut mechanism.

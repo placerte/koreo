@@ -15,6 +15,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QWidget
 
+from koreo.settings import APPEARANCE
+
 _MAX_ZOOM = 64.0
 
 
@@ -34,7 +36,8 @@ class WaveformWidget(QWidget):
         self.zoom_factor = 1.0
         self.view_start_ms = 0.0
         self.follow_playhead = True
-        self.structure_bands: tuple[tuple[int, int, str], ...] = ()
+        self.show_structure_labels = APPEARANCE.show_waveform_section_labels
+        self.structure_bands: tuple[tuple[int, int, str, str], ...] = ()
         self._press_x: float | None = None
         self._pan_x: float | None = None
         self._dragging = False
@@ -68,10 +71,16 @@ class WaveformWidget(QWidget):
             self.bpm = bpm
             self.update()
 
-    def set_structure_bands(self, bands: tuple[tuple[int, int, str], ...]) -> None:
+    def set_structure_bands(self, bands: tuple[tuple[int, int, str, str], ...]) -> None:
         """Set calibrated top-level section backgrounds in media time."""
 
         self.structure_bands = bands
+        self.update()
+
+    def set_show_structure_labels(self, enabled: bool) -> None:
+        """Show or hide section names without changing structure bands."""
+
+        self.show_structure_labels = enabled
         self.update()
 
     def set_follow_playhead(self, enabled: bool) -> None:
@@ -202,20 +211,26 @@ class WaveformWidget(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor("#60a5fa"))
             painter.drawPolygon(polygon)
+        anchor_x: float | None = None
         if self.duration_ms > 0:
             if self.anchor_ms is not None and self._is_visible(self.anchor_ms):
                 anchor_x = self._time_to_x(self.anchor_ms)
                 painter.setPen(QPen(QColor("#16a34a"), 3))
                 painter.drawLine(int(anchor_x), 0, int(anchor_x), self.height())
-                painter.drawText(int(anchor_x) + 5, 16, "⚓")
             if self._is_visible(self.position_ms):
                 playhead_x = self._time_to_x(self.position_ms)
                 painter.setPen(QPen(QColor("#dc2626"), 2))
                 painter.drawLine(int(playhead_x), 0, int(playhead_x), self.height())
+        self._paint_rulers(painter)
+        if self.show_structure_labels:
+            self._paint_structure_labels(painter)
+        if anchor_x is not None:
+            painter.setPen(QPen(QColor("#16a34a"), 2))
+            painter.drawText(int(anchor_x) + 5, self.height() - 25, "⚓")
         painter.end()
 
     def _paint_structure_bands(self, painter: QPainter) -> None:
-        for start_ms, end_ms, color in self.structure_bands:
+        for start_ms, end_ms, color, _label in self.structure_bands:
             if (
                 end_ms < self.view_start_ms
                 or start_ms > self.view_start_ms + self.visible_duration_ms
@@ -224,8 +239,22 @@ class WaveformWidget(QWidget):
             left = self._time_to_x(start_ms)
             right = self._time_to_x(end_ms)
             shade = QColor(color)
-            shade.setAlpha(35)
+            shade.setAlphaF(1.0 - APPEARANCE.waveform_region_transparency)
             painter.fillRect(QRectF(left, 0, right - left, self.height()), shade)
+
+    def _paint_structure_labels(self, painter: QPainter) -> None:
+        """Draw section names above the waveform so they remain legible."""
+
+        for start_ms, end_ms, _color, label in self.structure_bands:
+            if (
+                end_ms < self.view_start_ms
+                or start_ms > self.view_start_ms + self.visible_duration_ms
+            ):
+                continue
+            if self._is_visible(start_ms):
+                left = self._time_to_x(start_ms)
+                painter.setPen(QPen(QColor("#475569"), 1))
+                painter.drawText(round(left) + 4, 36, label)
 
     def _paint_beat_grid(self, painter: QPainter) -> None:
         if self.duration_ms <= 0 or self.bpm <= 0:
@@ -242,6 +271,65 @@ class WaveformWidget(QWidget):
             painter.setPen(QPen(QColor(99, 102, 241, 70 if major else 35), 1))
             painter.drawLine(int(x), 0, int(x), self.height())
             beat += 1
+
+    def _paint_rulers(self, painter: QPainter) -> None:
+        if self.duration_ms <= 0 or self.width() <= 0:
+            return
+        painter.fillRect(QRectF(0, 0, self.width(), 20), QColor(248, 250, 252, 215))
+        painter.fillRect(
+            QRectF(0, self.height() - 20, self.width(), 20),
+            QColor(248, 250, 252, 215),
+        )
+        painter.setPen(QPen(QColor("#64748b"), 1))
+        painter.drawLine(0, 19, self.width(), 19)
+        painter.drawLine(0, self.height() - 20, self.width(), self.height() - 20)
+
+        minimum_time_step = self.visible_duration_ms * 80 / max(self.width(), 1)
+        time_step = next(
+            (
+                step
+                for step in (
+                    1_000,
+                    2_000,
+                    5_000,
+                    10_000,
+                    15_000,
+                    30_000,
+                    60_000,
+                    120_000,
+                    300_000,
+                    600_000,
+                )
+                if step >= minimum_time_step
+            ),
+            600_000,
+        )
+        time_ms = math.ceil(self.view_start_ms / time_step) * time_step
+        view_end = self.view_start_ms + self.visible_duration_ms
+        while time_ms <= view_end:
+            x = round(self._time_to_x(time_ms))
+            painter.drawLine(x, 13, x, 19)
+            painter.drawText(x + 3, 12, _format_ruler_time(time_ms))
+            time_ms += time_step
+
+        beat_ms = 60_000 / self.bpm
+        origin_ms = float(self.anchor_ms or 0)
+        first_beat = math.ceil((self.view_start_ms - origin_ms) / beat_ms)
+        last_beat = math.floor((view_end - origin_ms) / beat_ms)
+        label_every = max(
+            1, math.ceil(70 / max(beat_ms / self.visible_duration_ms * self.width(), 1))
+        )
+        for beat in range(first_beat, last_beat + 1):
+            x = round(self._time_to_x(origin_ms + beat * beat_ms))
+            major = beat % 8 == 0
+            painter.drawLine(
+                x,
+                self.height() - 20,
+                x,
+                self.height() - (8 if major else 14),
+            )
+            if major or beat % label_every == 0:
+                painter.drawText(x + 3, self.height() - 3, str(beat + 1))
 
     def _preferred_zoom_time(self) -> float:
         if self._is_visible(self.position_ms):
@@ -286,3 +374,8 @@ class WaveformWidget(QWidget):
             <= milliseconds
             <= self.view_start_ms + self.visible_duration_ms
         )
+
+
+def _format_ruler_time(milliseconds: float) -> str:
+    seconds = max(0, round(milliseconds / 1000))
+    return f"{seconds // 60}:{seconds % 60:02d}"

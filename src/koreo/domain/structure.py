@@ -6,8 +6,38 @@ from fractions import Fraction
 from koreo.domain.models import MusicalRegion, Project
 from koreo.domain.validation import ProjectValidationError, validate_project
 
-SECTION_PALETTE = ("#bfdbfe", "#bbf7d0", "#fde68a", "#fecaca", "#ddd6fe")
+DEFAULT_ACCENT_PALETTE = ("#bfdbfe", "#bbf7d0", "#fde68a", "#fecaca", "#ddd6fe")
+SECTION_PALETTE = DEFAULT_ACCENT_PALETTE
 AABA_LABELS = ("Intro", "A", "A", "B", "A", "Outro")
+
+
+@dataclass(frozen=True, slots=True)
+class StructureTemplate:
+    """A named arrangement or phrase form expanded into section rows."""
+
+    key: str
+    name: str
+    labels: tuple[str, ...]
+    section_beats: int = 32
+
+
+STRUCTURE_TEMPLATES = (
+    StructureTemplate(
+        "swing-arrangement",
+        "Intro · AABA · Interlude · AABA · Outro",
+        ("Intro", "A", "A", "B", "A", "Interlude", "A", "A", "B", "A", "Outro"),
+    ),
+    StructureTemplate("aaba", "AABA", ("A", "A", "B", "A")),
+    StructureTemplate("abab", "ABAB", ("A", "B", "A", "B")),
+    StructureTemplate("abac", "ABAC", ("A", "B", "A", "C")),
+    StructureTemplate("abba", "ABBA", ("A", "B", "B", "A")),
+    StructureTemplate("aaaa", "AAAA", ("A", "A", "A", "A")),
+    StructureTemplate("aab-blues", "AAB · 12-bar blues", ("A", "A", "B"), 16),
+    StructureTemplate("ab", "AB", ("A", "B")),
+    StructureTemplate("abc", "ABC", ("A", "B", "C")),
+    StructureTemplate("abaca", "ABACA · Rondo", ("A", "B", "A", "C", "A")),
+)
+DEFAULT_STRUCTURE_TEMPLATE = STRUCTURE_TEMPLATES[0]
 
 
 class StructureEditError(ValueError):
@@ -26,11 +56,29 @@ class SectionPattern:
 def generate_aaba(project: Project, duration: int = 32) -> Project:
     """Replace structure with AABA rows prepopulated by count-block children."""
 
+    return _generate_labels(project, AABA_LABELS, duration)
+
+
+def generate_structure_template(
+    project: Project, template: StructureTemplate
+) -> Project:
+    """Replace structure from a reusable arrangement or phrase form."""
+
+    return _generate_labels(
+        project,
+        template.labels,
+        template.section_beats,
+    )
+
+
+def _generate_labels(
+    project: Project, labels: tuple[str, ...], duration: int
+) -> Project:
     if duration <= 0:
         raise StructureEditError("Section duration must be positive")
     cursor = Fraction(0)
     regions: list[MusicalRegion] = []
-    for index, label in enumerate(AABA_LABELS):
+    for index, label in enumerate(labels):
         section_id = f"section-{index + 1}"
         color = SECTION_PALETTE[index % len(SECTION_PALETTE)]
         section = MusicalRegion(
@@ -162,6 +210,21 @@ def resize_block(project: Project, block_id: str, duration: int) -> Project:
         else:
             regions.append(region)
     return _validated(replace(project, regions=tuple(regions)))
+
+
+def update_block_label(project: Project, block_id: str, label: str) -> Project:
+    """Set optional count-block note text without changing timing."""
+
+    _block(project, block_id)
+    regions = tuple(
+        (
+            replace(region, label=label.strip() or "8 count")
+            if region.id == block_id
+            else region
+        )
+        for region in project.regions
+    )
+    return _validated(replace(project, regions=regions))
 
 
 def delete_block(project: Project, block_id: str) -> Project:

@@ -96,7 +96,8 @@ uv sync
 uv run koreo
 ```
 
-The app opens directly into its main window. Use **Choose song…** to select an
+The app opens directly into its Structure workspace. Use the **Choose audio
+track** music-file button in the waveform toolbar to select an
 MP3 or WAV and wait for decoder confirmation. Manual BPM is entered beside the
 song controls. **Tap BPM** then opens a focused modal that starts the song
 automatically, shows its playhead, and is immediately ready for Space taps.
@@ -120,8 +121,9 @@ the calibrated mapping, and the aligned block has a prominent Anchor edge.
 Ctrl-click selects multiple section rows; Ctrl+C and Ctrl+V copy them with
 their count blocks and paste independent copies after the selected row.
 Shift-click fills a row range, Ctrl+Z undoes the latest Structure command,
-Delete removes the focused block or selected rows, and Enter inserts an
-8-count block at the current selection.
+Delete removes the focused block or selected rows. Enter inserts a new section
+after the selection, while Ctrl+Enter inserts an 8-count block at the current
+selection.
 
 Run the complete automated checks:
 
@@ -132,9 +134,8 @@ uv run mypy .
 uv build
 ```
 
-The GUI tests select Qt's offscreen platform automatically. To regenerate the
-actual application screenshots used for Milestone 1 review in a headless
-environment:
+The GUI tests select Qt's offscreen platform automatically. To capture the
+current Structure workspace in a headless environment:
 
 ```console
 QT_QPA_PLATFORM=offscreen uv run python scripts/capture_screenshots.py
@@ -144,6 +145,15 @@ The editor views remain read-only while Milestone 2 is in progress. Playback,
 seeking, waveform display, and waveform-context anchor/refinement controls are
 available in the main window. Integration of the calibrated grid and shared
 playhead directly into both editor canvases is still pending.
+
+## License
+
+Koreo is released under the [MIT License](LICENSE). It uses separately
+licensed third-party components, notably PySide6/Qt under LGPLv3 and embedded
+Lucide icon paths under ISC/MIT terms. See
+[the dependency audit](docs/licensing.md) and
+[third-party notices](THIRD_PARTY_NOTICES.md) for the exact boundary and the
+additional obligations that apply to future standalone binary distributions.
 
 ## Project artifacts
 

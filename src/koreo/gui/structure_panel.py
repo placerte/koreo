@@ -1,12 +1,16 @@
 """Editable vertical song-structure rows."""
 
+from collections.abc import Callable
 from fractions import Fraction
+import re
 
-from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
+    QFocusEvent,
     QIcon,
+    QKeyEvent,
     QKeySequence,
     QMouseEvent,
     QPaintEvent,
@@ -14,17 +18,18 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QShortcut,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
-    QPushButton,
     QScrollArea,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -32,32 +37,75 @@ from PySide6.QtWidgets import (
 from koreo.domain.models import MusicalRegion, Project
 from koreo.domain.structure import (
     SECTION_PALETTE,
+    DEFAULT_STRUCTURE_TEMPLATE,
+    STRUCTURE_TEMPLATES,
     SectionPattern,
+    StructureTemplate,
     StructureEditError,
     add_block,
     append_section,
     delete_block,
     delete_section,
     delete_sections,
-    generate_aaba,
+    generate_structure_template,
     insert_section_after,
     insert_block_after,
     paste_sections,
     resize_block,
     section_patterns,
+    update_block_label,
     update_section,
 )
 from koreo.settings import APPEARANCE
+from koreo.gui.icons import IconRole, semantic_icon
 
 _ROW_HEIGHT = 54
-_LABEL_WIDTH = 100
+_LABEL_WIDTH = 140
 _BEAT_WIDTH = 14
+_MIN_BEAT_WIDTH = 6
+_MAX_BEAT_WIDTH = 40
+_RULER_HEIGHT = 28
+
+
+class _InlineEdit(QLineEdit):
+    """Single-line editor with explicit accept and cancel semantics."""
+
+    accepted = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, value: str, parent: QWidget) -> None:
+        super().__init__(value, parent)
+        self._resolved = False
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._accept()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:  # noqa: N802
+        self._accept()
+        super().focusOutEvent(event)
+
+    def _accept(self) -> None:
+        if not self._resolved:
+            self._resolved = True
+            self.accepted.emit(self.text())
+
+    def _cancel(self) -> None:
+        if not self._resolved:
+            self._resolved = True
+            self.cancelled.emit()
 
 
 class StructureCanvas(QWidget):
     selected = Signal(str)
     append_requested = Signal(int)
-    resize_requested = Signal(str, int)
     rename_requested = Signal(str, str)
     color_requested = Signal(str, str)
     delete_requested = Signal(str)
@@ -67,6 +115,7 @@ class StructureCanvas(QWidget):
     delete_block_requested = Signal(str)
     anchor_block_requested = Signal(str)
     position_requested = Signal(object)
+    block_label_requested = Signal(str, str)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -76,36 +125,62 @@ class StructureCanvas(QWidget):
         self.selected_block_id: str | None = None
         self.selection_anchor_id: str | None = None
         self._press: tuple[int, float, str | None] | None = None
-        self._label_editor: QLineEdit | None = None
+        self._label_editor: _InlineEdit | None = None
         self._resize_preview: tuple[str, int] | None = None
         self.playhead_beat: Fraction | None = None
-        self.selection_positions_playhead = False
+        self.selection_positions_playhead = APPEARANCE.selection_moves_playhead
+        self.continuous_ruler_numbers = False
+        self.beat_width = float(_BEAT_WIDTH)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumHeight(300)
 
     def set_project(self, project: Project) -> None:
         self.project = project
-        self.setMinimumHeight((len(self._rows()) + 1) * _ROW_HEIGHT + 10)
+        maximum_beats = max((int(row.duration) for row in self._rows()), default=32)
+        self.setMinimumWidth(round(_LABEL_WIDTH + maximum_beats * self.beat_width + 20))
+        self.setMinimumHeight(
+            _RULER_HEIGHT + (len(self._rows()) + 1) * _ROW_HEIGHT + 10
+        )
         self.update()
+
+    def set_horizontal_zoom(self, beat_width: float) -> None:
+        """Change horizontal beat scale without affecting vertical scrolling."""
+
+        self.beat_width = min(_MAX_BEAT_WIDTH, max(_MIN_BEAT_WIDTH, beat_width))
+        self.set_project(self.project)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+            self.set_horizontal_zoom(self.beat_width * factor)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         del event
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#f8fafc"))
+        self._paint_grid_and_ruler(painter)
         for row, region in enumerate(self._rows()):
-            y = row * _ROW_HEIGHT
+            y = _RULER_HEIGHT + row * _ROW_HEIGHT
             base = QColor(region.color or "#bfdbfe")
             painter.fillRect(
                 QRectF(2, y + 5, _LABEL_WIDTH - 8, _ROW_HEIGHT - 10),
                 base.lighter(112),
             )
             painter.setPen(QPen(QColor("#334155")))
-            painter.drawText(
-                QRectF(6, y, _LABEL_WIDTH - 10, _ROW_HEIGHT),
-                Qt.AlignmentFlag.AlignVCenter,
-                region.label,
-            )
+            painter.drawText(QRectF(6, y + 5, _LABEL_WIDTH - 10, 22), region.label)
+            timestamp = _region_timestamp(self.project, region)
+            if timestamp:
+                painter.save()
+                font = painter.font()
+                font.setPointSizeF(max(7.0, font.pointSizeF() - 2.0))
+                painter.setFont(font)
+                painter.setPen(QPen(QColor("#64748b")))
+                painter.drawText(QRectF(6, y + 27, _LABEL_WIDTH - 10, 18), timestamp)
+                painter.restore()
             blocks = self._blocks(region.id)
             block_offset = Fraction(0)
             for block_index, block in enumerate(blocks):
@@ -116,20 +191,31 @@ class StructureCanvas(QWidget):
                     else block.duration
                 )
                 rect = QRectF(
-                    _LABEL_WIDTH + float(block_offset) * _BEAT_WIDTH,
+                    _LABEL_WIDTH + float(block_offset) * self.beat_width,
                     y + 5,
-                    float(beats) * _BEAT_WIDTH,
+                    float(beats) * self.beat_width,
                     _ROW_HEIGHT - 10,
                 )
                 shade = base if block_index % 2 == 0 else _alternate_shade(base)
                 painter.fillRect(rect, shade)
                 painter.setPen(QPen(QColor("#64748b")))
                 painter.drawRect(rect)
-                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(beats))
+                leader, note = _parse_block_note(block.label)
+                painter.drawText(
+                    QRectF(rect.left(), rect.top() + 2, rect.width(), 15),
+                    Qt.AlignmentFlag.AlignHCenter,
+                    str(beats),
+                )
+                note_rect = QRectF(
+                    rect.left() + 4,
+                    rect.top() + 15,
+                    rect.width() - 8,
+                    rect.height() - 17,
+                )
                 tick = 1
                 painter.setPen(QPen(QColor(71, 85, 105, 100), 1))
                 while Fraction(tick) < beats:
-                    tick_x = rect.left() + tick * _BEAT_WIDTH
+                    tick_x = rect.left() + tick * self.beat_width
                     painter.drawLine(
                         round(tick_x),
                         round(rect.bottom()) - 6,
@@ -137,6 +223,41 @@ class StructureCanvas(QWidget):
                         round(rect.bottom()),
                     )
                     tick += 1
+                if leader is not None and 1 <= leader <= beats:
+                    leader_x = rect.left() + (leader - 1) * self.beat_width
+                    if note:
+                        note_width = painter.fontMetrics().horizontalAdvance(note)
+                        note_height = painter.fontMetrics().boundingRect(note).height()
+                        points = _leader_points(
+                            note_rect,
+                            note_width,
+                            note_height,
+                            leader_x,
+                            rect.bottom(),
+                        )
+                        painter.setPen(QPen(QColor("#334155"), 2))
+                        for start, end in zip(points, points[1:]):
+                            painter.drawLine(
+                                round(start[0]),
+                                round(start[1]),
+                                round(end[0]),
+                                round(end[1]),
+                            )
+                    else:
+                        painter.setPen(QPen(QColor("#334155"), 3))
+                        painter.drawLine(
+                            round(leader_x),
+                            round(rect.bottom()) - 11,
+                            round(leader_x),
+                            round(rect.bottom()),
+                        )
+                if note:
+                    painter.setPen(QPen(QColor("#64748b")))
+                    painter.drawText(
+                        note_rect,
+                        Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                        note,
+                    )
                 if block.id == self.selected_block_id:
                     painter.setPen(QPen(QColor("#2563eb"), 3))
                     painter.drawRect(rect.adjusted(2, 2, -2, -2))
@@ -159,7 +280,7 @@ class StructureCanvas(QWidget):
                 block_offset += beats
             if region.id in self.selected_ids:
                 painter.setPen(QPen(QColor("#2563eb"), 3))
-                selected_width = _LABEL_WIDTH + float(region.duration) * _BEAT_WIDTH
+                selected_width = _LABEL_WIDTH + float(region.duration) * self.beat_width
                 painter.drawRect(QRectF(1, y + 1, selected_width, _ROW_HEIGHT - 2))
             if (
                 self.playhead_beat is not None
@@ -167,13 +288,13 @@ class StructureCanvas(QWidget):
             ):
                 playhead_x = (
                     _LABEL_WIDTH
-                    + float(self.playhead_beat - region.start) * _BEAT_WIDTH
+                    + float(self.playhead_beat - region.start) * self.beat_width
                 )
                 painter.setPen(QPen(QColor("#dc2626"), 2))
                 painter.drawLine(
                     int(playhead_x), y + 3, int(playhead_x), y + _ROW_HEIGHT - 3
                 )
-        blank_y = len(self._rows()) * _ROW_HEIGHT
+        blank_y = _RULER_HEIGHT + len(self._rows()) * _ROW_HEIGHT
         painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
         painter.drawRect(
             QRectF(
@@ -190,16 +311,63 @@ class StructureCanvas(QWidget):
         )
         painter.end()
 
+    def _paint_grid_and_ruler(self, painter: QPainter) -> None:
+        maximum_beats = max((int(row.duration) for row in self._rows()), default=32)
+        maximum_x = _LABEL_WIDTH + maximum_beats * self.beat_width
+        group = max(1, self.project.default_count_group)
+        for beat in range(maximum_beats + 1):
+            x = _LABEL_WIDTH + beat * self.beat_width
+            primary = beat % group == 0
+            alpha = (
+                APPEARANCE.structure_primary_grid_alpha
+                if primary
+                else APPEARANCE.structure_grid_alpha
+            )
+            painter.setPen(
+                QPen(
+                    QColor.fromRgbF(0.28, 0.33, 0.41, alpha),
+                    2 if primary else 1,
+                )
+            )
+            painter.drawLine(round(x), _RULER_HEIGHT, round(x), self.height())
+            label_alpha = (
+                APPEARANCE.structure_primary_grid_label_alpha
+                if primary
+                else APPEARANCE.structure_grid_label_alpha
+            )
+            ruler_color = QColor("#475569")
+            ruler_color.setAlphaF(label_alpha)
+            painter.setPen(QPen(ruler_color, 2 if primary else 1))
+            painter.drawText(
+                QRectF(x - self.beat_width / 2, 1, self.beat_width, 18),
+                Qt.AlignmentFlag.AlignHCenter,
+                str(beat + 1 if self.continuous_ruler_numbers else beat % group + 1),
+            )
+            painter.drawLine(
+                round(x),
+                _RULER_HEIGHT - (8 if primary else 5),
+                round(x),
+                _RULER_HEIGHT,
+            )
+        painter.setPen(QPen(QColor("#64748b"), 1))
+        painter.drawLine(
+            _LABEL_WIDTH, _RULER_HEIGHT - 1, round(maximum_x), _RULER_HEIGHT - 1
+        )
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus()
-            row = int(event.position().y() // _ROW_HEIGHT)
+            if event.position().y() < _RULER_HEIGHT:
+                event.accept()
+                return
+            row = int((event.position().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
             rows = self._rows()
             boundary_block: str | None = None
             if row < len(rows):
                 for block in self._blocks(rows[row].id):
                     endpoint = (
-                        _LABEL_WIDTH + float(block.end - rows[row].start) * _BEAT_WIDTH
+                        _LABEL_WIDTH
+                        + float(block.end - rows[row].start) * self.beat_width
                     )
                     if abs(event.position().x() - endpoint) <= 6:
                         boundary_block = block.id
@@ -220,7 +388,7 @@ class StructureCanvas(QWidget):
         rows = self._rows()
         if row >= len(rows):
             duration = max(
-                1, round((event.position().x() - _LABEL_WIDTH) / _BEAT_WIDTH)
+                1, round((event.position().x() - _LABEL_WIDTH) / self.beat_width)
             )
             self.append_requested.emit(duration)
             return
@@ -257,23 +425,57 @@ class StructureCanvas(QWidget):
             self.position_requested.emit(target)
         if block_id is not None and abs(event.position().x() - start_x) >= 2:
             block = next(item for item in self.project.regions if item.id == block_id)
-            block_x = _LABEL_WIDTH + float(block.start - region.start) * _BEAT_WIDTH
-            duration = max(1, round((event.position().x() - block_x) / _BEAT_WIDTH))
+            block_x = _LABEL_WIDTH + float(block.start - region.start) * self.beat_width
+            duration = max(1, round((event.position().x() - block_x) / self.beat_width))
             self.resize_block_requested.emit(block.id, duration)
         self.update()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        row = int(event.position().y() // _ROW_HEIGHT)
+        row = int((event.position().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
         rows = self._rows()
+        if 0 <= row < len(rows) and event.position().x() >= _LABEL_WIDTH:
+            block = self._block_at(rows[row], round(event.position().x()))
+            if block is not None:
+                self._begin_block_label_edit(rows[row], block, row)
+                event.accept()
+                return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and event.position().x() < _LABEL_WIDTH
-            and row < len(rows)
+            and 0 <= row < len(rows)
         ):
             self._begin_label_edit(rows[row], row)
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def _begin_block_label_edit(
+        self, section: MusicalRegion, block: MusicalRegion, row: int
+    ) -> None:
+        if self._label_editor is not None:
+            self._label_editor.deleteLater()
+        x = _LABEL_WIDTH + round(float(block.start - section.start) * self.beat_width)
+        width = max(40, round(float(block.duration) * self.beat_width))
+        value = "" if block.label == "8 count" else block.label
+        editor = _InlineEdit(value, self)
+        editor.setGeometry(x + 2, _RULER_HEIGHT + row * _ROW_HEIGHT + 17, width - 4, 28)
+        editor.setPlaceholderText("note or 4: note")
+        editor.selectAll()
+        editor.show()
+        editor.setFocus()
+        self._label_editor = editor
+
+        def finish(value: str) -> None:
+            if self._label_editor is not editor:
+                return
+            editor.hide()
+            editor.deleteLater()
+            self._label_editor = None
+            self.setFocus()
+            self.block_label_requested.emit(block.id, value.strip())
+
+        editor.accepted.connect(finish)
+        editor.cancelled.connect(lambda: self._close_editor(editor))
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if (
@@ -289,19 +491,21 @@ class StructureCanvas(QWidget):
                 )
                 block_x = (
                     _LABEL_WIDTH
-                    + float(block.start - rows[pressed_row].start) * _BEAT_WIDTH
+                    + float(block.start - rows[pressed_row].start) * self.beat_width
                 )
-                duration = max(1, round((event.position().x() - block_x) / _BEAT_WIDTH))
+                duration = max(
+                    1, round((event.position().x() - block_x) / self.beat_width)
+                )
                 self._resize_preview = (block_id, duration)
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
                 self.update()
                 event.accept()
                 return
-        row = int(event.position().y() // _ROW_HEIGHT)
+        row = int((event.position().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
         rows = self._rows()
-        if row < len(rows):
+        if 0 <= row < len(rows):
             endpoints = (
-                _LABEL_WIDTH + float(block.end - rows[row].start) * _BEAT_WIDTH
+                _LABEL_WIDTH + float(block.end - rows[row].start) * self.beat_width
                 for block in self._blocks(rows[row].id)
             )
             if any(abs(event.position().x() - endpoint) <= 6 for endpoint in endpoints):
@@ -317,7 +521,9 @@ class StructureCanvas(QWidget):
         super().leaveEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
-        row = int(event.pos().y() // _ROW_HEIGHT)
+        if event.pos().y() < _RULER_HEIGHT:
+            return
+        row = int((event.pos().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
         rows = self._rows()
         if row >= len(rows):
             return
@@ -368,23 +574,38 @@ class StructureCanvas(QWidget):
     def _begin_label_edit(self, region: MusicalRegion, row: int) -> None:
         if self._label_editor is not None:
             self._label_editor.deleteLater()
-        editor = QLineEdit(region.label, self)
-        editor.setGeometry(2, row * _ROW_HEIGHT + 5, _LABEL_WIDTH - 8, _ROW_HEIGHT - 10)
+        editor = _InlineEdit(region.label, self)
+        editor.setGeometry(
+            2,
+            _RULER_HEIGHT + row * _ROW_HEIGHT + 5,
+            _LABEL_WIDTH - 8,
+            _ROW_HEIGHT - 10,
+        )
         editor.selectAll()
         editor.show()
         editor.setFocus()
         self._label_editor = editor
 
-        def finish() -> None:
+        def finish(value: str) -> None:
             if self._label_editor is not editor:
                 return
-            value = editor.text().strip()
+            editor.hide()
             editor.deleteLater()
             self._label_editor = None
+            self.setFocus()
+            value = value.strip()
             if value and value != region.label:
                 self.rename_requested.emit(region.id, value)
 
-        editor.editingFinished.connect(finish)
+        editor.accepted.connect(finish)
+        editor.cancelled.connect(lambda: self._close_editor(editor))
+
+    def _close_editor(self, editor: _InlineEdit) -> None:
+        if self._label_editor is editor:
+            self._label_editor = None
+            editor.hide()
+            editor.deleteLater()
+            self.setFocus()
 
     def _rows(self) -> tuple[MusicalRegion, ...]:
         return tuple(
@@ -403,7 +624,10 @@ class StructureCanvas(QWidget):
         )
 
     def _block_at(self, section: MusicalRegion, x: int) -> MusicalRegion | None:
-        beat = section.start + Fraction(max(0, x - _LABEL_WIDTH), _BEAT_WIDTH)
+        local_beat = Fraction(
+            max(0.0, x - _LABEL_WIDTH) / self.beat_width
+        ).limit_denominator(1000)
+        beat = section.start + local_beat
         return next(
             (
                 block
@@ -421,6 +645,50 @@ def _alternate_shade(base: QColor) -> QColor:
         round(base.green() * factor + 255 * (1 - factor)),
         round(base.blue() * factor + 255 * (1 - factor)),
     )
+
+
+def _parse_block_note(label: str) -> tuple[int | None, str]:
+    if label == "8 count":
+        return None, ""
+    match = re.fullmatch(r"\s*(\d+)\s*:\s*(.*)", label)
+    if match is None:
+        return None, label
+    return int(match.group(1)), match.group(2).strip()
+
+
+def _leader_points(
+    note_rect: QRectF,
+    note_width: float,
+    note_height: float,
+    tick_x: float,
+    tick_bottom: float,
+) -> tuple[tuple[float, float], ...]:
+    """Route a leader from one of the label's permitted anchors to a tick."""
+
+    center_x = note_rect.center().x()
+    center_y = note_rect.center().y()
+    left = center_x - note_width / 2
+    right = center_x + note_width / 2
+    if tick_x < left:
+        return ((left, center_y), (tick_x, center_y), (tick_x, tick_bottom))
+    if tick_x > right:
+        return ((right, center_y), (tick_x, center_y), (tick_x, tick_bottom))
+    bottom = center_y + note_height / 2
+    elbow_y = max(bottom + 3, tick_bottom - 7)
+    return (
+        (center_x, bottom),
+        (center_x, elbow_y),
+        (tick_x, elbow_y),
+        (tick_x, tick_bottom),
+    )
+
+
+def _region_timestamp(project: Project, region: MusicalRegion) -> str:
+    if project.calibration is None:
+        return ""
+    start = max(0, int(project.calibration.seconds_at(region.start)))
+    end = max(0, int(project.calibration.seconds_at(region.end)))
+    return f"{start // 60}:{start % 60:02d}–{end // 60}:{end % 60:02d}"
 
 
 class StructurePanel(QWidget):
@@ -446,26 +714,114 @@ class StructurePanel(QWidget):
         content = QWidget()
         layout = QVBoxLayout(content)
         generator = QHBoxLayout()
-        self.template_duration = QSpinBox()
-        self.template_duration.setRange(1, 512)
-        self.template_duration.setValue(32)
-        self.generate_button = QPushButton("Generate AABA")
+        self._selected_template = DEFAULT_STRUCTURE_TEMPLATE
+        self.generate_button = QToolButton()
+        self.generate_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup
+        )
+        self.generate_button.setIcon(
+            semantic_icon(self.generate_button, IconRole.STRUCTURE_TEMPLATE)
+        )
+        self.generate_button.setIconSize(QSize(20, 20))
+        self.generate_button.setAccessibleName("Generate structure from template")
         self.generate_button.clicked.connect(self._generate)
-        self.anchor_button = QPushButton("Align selected block to grid Anchor")
+        template_menu = QMenu(self.generate_button)
+        template_menu.addSection("Full-song arrangements")
+        self._add_template_action(template_menu, DEFAULT_STRUCTURE_TEMPLATE)
+        template_menu.addSection("Phrase and form templates")
+        for template in STRUCTURE_TEMPLATES[1:]:
+            self._add_template_action(template_menu, template)
+        template_menu.addSeparator()
+        custom_action = template_menu.addAction(
+            "Custom · draw or add sections manually"
+        )
+        custom_action.setEnabled(False)
+        self.generate_button.setMenu(template_menu)
+        self._update_template_button()
+        self.anchor_button = QToolButton()
+        self.anchor_button.setIcon(
+            semantic_icon(self.anchor_button, IconRole.ALIGN_TO_ANCHOR)
+        )
+        self.anchor_button.setIconSize(QSize(20, 20))
+        self.anchor_button.setAccessibleName("Align selected block to grid Anchor")
+        self.anchor_button.setToolTip("Align selected block to grid Anchor")
         self.anchor_button.clicked.connect(self._anchor_selected)
-        self.position_toggle = QCheckBox("Selection moves playhead")
+        self.position_toggle = QToolButton()
+        self.position_toggle.setIcon(
+            semantic_icon(self.position_toggle, IconRole.SELECTION_SEEKS)
+        )
+        self.position_toggle.setIconSize(QSize(20, 20))
+        self.position_toggle.setAccessibleName("Selection moves playhead")
+        self.position_toggle.setToolTip("Selection moves playhead")
+        self.position_toggle.setCheckable(True)
+        self.position_toggle.setChecked(APPEARANCE.selection_moves_playhead)
         self.position_toggle.toggled.connect(self._position_toggle_changed)
-        generator.addWidget(QLabel("Section beats:"))
-        generator.addWidget(self.template_duration)
-        generator.addWidget(self.generate_button)
-        generator.addWidget(self.anchor_button)
+        self.ruler_numbers_toggle = QToolButton()
+        self.ruler_numbers_toggle.setIcon(
+            semantic_icon(self.ruler_numbers_toggle, IconRole.CONTINUOUS_COUNTS)
+        )
+        self.ruler_numbers_toggle.setIconSize(QSize(20, 20))
+        self.ruler_numbers_toggle.setAccessibleName("Continuous ruler numbers")
+        self.ruler_numbers_toggle.setToolTip("Continuous ruler numbers")
+        self.ruler_numbers_toggle.setCheckable(True)
+        self.ruler_numbers_toggle.toggled.connect(self._ruler_numbers_toggle_changed)
+        self.zoom_out_button = self._toolbar_button(
+            IconRole.ZOOM_OUT,
+            "Zoom Structure board out (Ctrl+Mouse Wheel Down)",
+            self._zoom_out,
+        )
+        self.zoom_in_button = self._toolbar_button(
+            IconRole.ZOOM_IN,
+            "Zoom Structure board in (Ctrl+Mouse Wheel Up)",
+            self._zoom_in,
+        )
+        self.zoom_fit_button = self._toolbar_button(
+            IconRole.ZOOM_FIT, "Fit Structure board width", self._zoom_fit
+        )
+        self.add_section_button = self._toolbar_button(
+            IconRole.ADD_SECTION,
+            "Add section after selection (Enter)",
+            self._add_section,
+        )
+        self.add_block_button = self._toolbar_button(
+            IconRole.ADD_BLOCK,
+            "Add 8-count block (Ctrl+Enter)",
+            self._add_count_at_selection,
+        )
+        self.undo_button = self._toolbar_button(
+            IconRole.UNDO, "Undo (Ctrl+Z)", self._undo
+        )
+        self.copy_button = self._toolbar_button(
+            IconRole.COPY, "Copy selected sections (Ctrl+C)", self._copy_selected
+        )
+        self.paste_button = self._toolbar_button(
+            IconRole.PASTE,
+            "Paste sections after selection (Ctrl+V)",
+            self._paste_after_selected,
+        )
+        self.delete_button = self._toolbar_button(
+            IconRole.DELETE, "Delete selection (Delete)", self._delete_selection
+        )
+        generator.addWidget(QLabel("View:"))
+        generator.addWidget(self.zoom_out_button)
+        generator.addWidget(self.zoom_in_button)
+        generator.addWidget(self.zoom_fit_button)
         generator.addWidget(self.position_toggle)
+        generator.addWidget(self.ruler_numbers_toggle)
+        generator.addWidget(self._toolbar_separator())
+        generator.addWidget(QLabel("Edit:"))
+        generator.addWidget(self.generate_button)
+        generator.addWidget(self.add_section_button)
+        generator.addWidget(self.add_block_button)
+        generator.addWidget(self.undo_button)
+        generator.addWidget(self.copy_button)
+        generator.addWidget(self.paste_button)
+        generator.addWidget(self.delete_button)
+        generator.addWidget(self.anchor_button)
         generator.addStretch(1)
-        layout.addLayout(generator)
+        outer_layout.addLayout(generator)
         self.canvas = StructureCanvas(project)
-        self.canvas.selected.connect(self._select)
         self.canvas.append_requested.connect(self._append)
-        self.canvas.resize_requested.connect(self._resize)
         self.canvas.rename_requested.connect(self._rename)
         self.canvas.color_requested.connect(self._recolor)
         self.canvas.delete_requested.connect(self._delete_id)
@@ -474,52 +830,62 @@ class StructurePanel(QWidget):
         self.canvas.resize_block_requested.connect(self._resize_block)
         self.canvas.delete_block_requested.connect(self._delete_block)
         self.canvas.anchor_block_requested.connect(self.anchor_block_requested)
+        self.canvas.block_label_requested.connect(self._rename_block)
         self.canvas.position_requested.connect(self.position_requested)
         layout.addWidget(self.canvas, 1)
-        editor = QHBoxLayout()
-        self.label_edit = QLineEdit()
-        self.label_edit.setPlaceholderText("Selected section label")
-        self.duration_edit = QSpinBox()
-        self.duration_edit.setRange(1, 4096)
-        self.duration_edit.setReadOnly(True)
-        self.duration_edit.setToolTip("Derived from the section's count blocks")
-        self.color_edit = QLineEdit("#bfdbfe")
-        self.apply_button = QPushButton("Apply")
-        self.apply_button.clicked.connect(self._apply)
-        self.delete_button = QPushButton("Delete")
-        self.delete_button.clicked.connect(self._delete)
-        editor.addWidget(self.label_edit)
-        editor.addWidget(QLabel("Total beats:"))
-        editor.addWidget(self.duration_edit)
-        editor.addWidget(QLabel("Color:"))
-        editor.addWidget(self.color_edit)
-        editor.addWidget(self.apply_button)
-        editor.addWidget(self.delete_button)
-        layout.addLayout(editor)
         self.status = QLabel("Drag on the blank row to append a section.")
         layout.addWidget(self.status)
         self.scroll_area.setWidget(content)
         outer_layout.addWidget(self.scroll_area)
-        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
-        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.canvas)
+        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.copy_shortcut.activated.connect(self._copy_selected)
-        self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self)
-        self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self.canvas)
+        self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.paste_shortcut.activated.connect(self._paste_after_selected)
-        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        self.undo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self.canvas)
+        self.undo_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.undo_shortcut.activated.connect(self._undo)
-        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)
-        self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.canvas)
+        self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.delete_shortcut.activated.connect(self._delete_selection)
-        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
-        self.enter_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.enter_shortcut.activated.connect(self._add_count_at_selection)
-        self.keypad_enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
-        self.keypad_enter_shortcut.setContext(
-            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Return), self.canvas)
+        self.enter_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.enter_shortcut.activated.connect(self._add_section)
+        self.keypad_enter_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_Enter), self.canvas
         )
-        self.keypad_enter_shortcut.activated.connect(self._add_count_at_selection)
+        self.keypad_enter_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.keypad_enter_shortcut.activated.connect(self._add_section)
+        self.ctrl_enter_shortcut = QShortcut(
+            QKeySequence(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_Return),
+            self.canvas,
+        )
+        self.ctrl_enter_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.ctrl_enter_shortcut.activated.connect(self._add_count_at_selection)
+        self.ctrl_keypad_enter_shortcut = QShortcut(
+            QKeySequence(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_Enter),
+            self.canvas,
+        )
+        self.ctrl_keypad_enter_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.ctrl_keypad_enter_shortcut.activated.connect(self._add_count_at_selection)
+
+    def _toolbar_button(
+        self, role: IconRole, name: str, callback: Callable[[], None]
+    ) -> QToolButton:
+        button = QToolButton(self)
+        button.setIcon(semantic_icon(button, role))
+        button.setIconSize(QSize(20, 20))
+        button.setAccessibleName(name)
+        button.setToolTip(name)
+        button.clicked.connect(callback)
+        return button
+
+    def _toolbar_separator(self) -> QFrame:
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        return separator
 
     def set_project(self, project: Project) -> None:
         self.project = project
@@ -547,8 +913,52 @@ class StructurePanel(QWidget):
         if not self._history or self._history[-1] != project:
             self._history.append(project)
 
+    def _zoom_in(self) -> None:
+        self.canvas.set_horizontal_zoom(self.canvas.beat_width * 1.2)
+
+    def _zoom_out(self) -> None:
+        self.canvas.set_horizontal_zoom(self.canvas.beat_width / 1.2)
+
+    def _zoom_fit(self) -> None:
+        longest = max(
+            (float(row.duration) for row in self.canvas._rows()), default=32.0
+        )
+        available = max(1, self.scroll_area.viewport().width() - _LABEL_WIDTH - 20)
+        self.canvas.set_horizontal_zoom(available / longest)
+        self.scroll_area.horizontalScrollBar().setValue(0)
+
+    def _add_section(self) -> None:
+        selected = [
+            region
+            for region in self.project.regions
+            if region.parent_id is None and region.id in self.canvas.selected_ids
+        ]
+        if selected:
+            after = max(selected, key=lambda region: region.start)
+            self._insert(after.id)
+        else:
+            self._append(32)
+
     def _generate(self) -> None:
-        self._commit(generate_aaba(self.project, self.template_duration.value()))
+        self._commit(generate_structure_template(self.project, self._selected_template))
+
+    def _add_template_action(self, menu: QMenu, template: StructureTemplate) -> None:
+        action = menu.addAction(template.name)
+        action.triggered.connect(
+            lambda checked=False, item=template: self._select_template(item)
+        )
+
+    def _select_template(self, template: StructureTemplate) -> None:
+        self._selected_template = template
+        self._update_template_button()
+        self._generate()
+
+    def _update_template_button(self) -> None:
+        self.generate_button.setToolTip(
+            f"Generate {self._selected_template.name} · "
+            f"{self._selected_template.section_beats} beats per section; "
+            "use the arrow for alternatives"
+        )
 
     def _append(self, duration: int) -> None:
         self._commit(append_section(self.project, duration))
@@ -561,6 +971,10 @@ class StructurePanel(QWidget):
 
     def _position_toggle_changed(self, enabled: bool) -> None:
         self.canvas.selection_positions_playhead = enabled
+
+    def _ruler_numbers_toggle_changed(self, enabled: bool) -> None:
+        self.canvas.continuous_ruler_numbers = enabled
+        self.canvas.update()
 
     def _editing_text(self) -> bool:
         return isinstance(QApplication.focusWidget(), (QLineEdit, QSpinBox))
@@ -647,11 +1061,7 @@ class StructurePanel(QWidget):
         self.status.setText(f"Pasted {len(new_ids)} section(s).")
 
     def _insert(self, section_id: str) -> None:
-        self._commit(
-            insert_section_after(
-                self.project, section_id, self.template_duration.value()
-            )
-        )
+        self._commit(insert_section_after(self.project, section_id))
 
     def _add_block(self, section_id: str) -> None:
         self._commit(add_block(self.project, section_id))
@@ -668,30 +1078,8 @@ class StructurePanel(QWidget):
         except StructureEditError as error:
             self.status.setText(str(error))
 
-    def _select(self, region_id: str) -> None:
-        region = next(
-            region for region in self.project.regions if region.id == region_id
-        )
-        self.label_edit.setText(region.label)
-        self.duration_edit.setValue(int(region.duration))
-        self.color_edit.setText(region.color or "#bfdbfe")
-
-    def _resize(self, region_id: str, duration: int) -> None:
-        region = next(
-            region for region in self.project.regions if region.id == region_id
-        )
-        try:
-            self._commit(
-                update_section(
-                    self.project,
-                    region_id,
-                    label=region.label,
-                    duration=duration,
-                    color=region.color or "#bfdbfe",
-                )
-            )
-        except StructureEditError as error:
-            self.status.setText(str(error))
+    def _rename_block(self, block_id: str, label: str) -> None:
+        self._commit(update_block_label(self.project, block_id, label))
 
     def _rename(self, region_id: str, label: str) -> None:
         region = self._region(region_id)
@@ -700,27 +1088,6 @@ class StructurePanel(QWidget):
     def _recolor(self, region_id: str, color: str) -> None:
         region = self._region(region_id)
         self._update(region, label=region.label, color=color)
-
-    def _apply(self) -> None:
-        if self.canvas.selected_id is None:
-            return
-        try:
-            self._commit(
-                update_section(
-                    self.project,
-                    self.canvas.selected_id,
-                    label=self.label_edit.text(),
-                    duration=self.duration_edit.value(),
-                    color=self.color_edit.text(),
-                )
-            )
-        except StructureEditError as error:
-            self.status.setText(str(error))
-
-    def _delete(self) -> None:
-        if self.canvas.selected_id is None:
-            return
-        self._delete_id(self.canvas.selected_id)
 
     def _delete_id(self, region_id: str) -> None:
         self._commit(delete_section(self.project, region_id))

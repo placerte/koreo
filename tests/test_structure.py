@@ -7,6 +7,8 @@ import pytest
 
 from koreo.domain.structure import (
     AABA_LABELS,
+    DEFAULT_STRUCTURE_TEMPLATE,
+    STRUCTURE_TEMPLATES,
     StructureEditError,
     add_block,
     append_section,
@@ -14,12 +16,14 @@ from koreo.domain.structure import (
     delete_section,
     delete_sections,
     generate_aaba,
+    generate_structure_template,
     insert_section_after,
     insert_block_after,
     paste_sections,
     resize_block,
     section_patterns,
     update_section,
+    update_block_label,
 )
 from koreo.fixtures import representative_project
 
@@ -39,6 +43,37 @@ def test_aaba_generator_creates_independent_contiguous_rows() -> None:
         blocks = tuple(r for r in project.regions if r.parent_id == section.id)
         assert len(blocks) == 4
         assert all(block.duration == 8 for block in blocks)
+
+
+def test_structure_templates_expand_arrangements_and_blues_phrase_lengths() -> None:
+    project = representative_project()
+    arrangement = generate_structure_template(project, DEFAULT_STRUCTURE_TEMPLATE)
+    sections = tuple(
+        region for region in arrangement.regions if region.parent_id is None
+    )
+    assert tuple(region.label for region in sections) == (
+        "Intro",
+        "A",
+        "A",
+        "B",
+        "A",
+        "Interlude",
+        "A",
+        "A",
+        "B",
+        "A",
+        "Outro",
+    )
+
+    blues = next(
+        template for template in STRUCTURE_TEMPLATES if template.key == "aab-blues"
+    )
+    generated = generate_structure_template(project, blues)
+    blues_sections = tuple(
+        region for region in generated.regions if region.parent_id is None
+    )
+    assert [region.label for region in blues_sections] == ["A", "A", "B"]
+    assert all(region.duration == 16 for region in blues_sections)
 
 
 def test_append_update_and_delete_preserve_unrelated_state() -> None:
@@ -133,6 +168,18 @@ def test_insert_block_after_and_multi_delete_ripple_exactly() -> None:
     )
     assert [r.label for r in remaining] == ["Intro", "A", "A", "Outro"]
     assert [r.start for r in remaining] == [0, 40, 72, 104]
+
+
+def test_block_note_edit_preserves_exact_timing() -> None:
+    project = generate_aaba(representative_project())
+    block = next(region for region in project.regions if region.parent_id is not None)
+
+    updated = update_block_label(project, block.id, "4: break")
+    changed = next(region for region in updated.regions if region.id == block.id)
+
+    assert changed.label == "4: break"
+    assert changed.start == block.start
+    assert changed.duration == block.duration
 
 
 @pytest.mark.parametrize("duration", [0, -1])
