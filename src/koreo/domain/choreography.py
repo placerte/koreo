@@ -7,6 +7,8 @@ from uuid import uuid4
 from koreo.domain.models import Move, Project
 from koreo.domain.validation import validate_project
 
+# GitHub issues #27 and #28: direct move editing with atomic overlap resolution.
+
 
 class ChoreographyEditError(ValueError):
     """Raised when a requested move edit cannot produce a valid project."""

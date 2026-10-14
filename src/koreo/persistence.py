@@ -14,6 +14,8 @@ from koreo.domain.calibration import BeatCalibration
 from koreo.domain.models import ChoreographyTrack, Move, MusicalRegion, Project
 from koreo.domain.validation import ProjectValidationError, validate_project
 
+# GitHub issue #35: write complete archives atomically and reopen them safely.
+
 FORMAT_VERSION = "0.1"
 METADATA_NAME = "project.json"
 
