@@ -4,7 +4,7 @@ from collections.abc import Callable
 from fractions import Fraction
 import re
 
-from PySide6.QtCore import QEvent, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
@@ -58,6 +58,7 @@ from koreo.domain.structure import (
 )
 from koreo.settings import APPEARANCE
 from koreo.gui.icons import IconRole, semantic_icon
+from koreo.gui.sticky_ruler import StickyRuler
 
 _ROW_HEIGHT = 54
 _LABEL_WIDTH = 140
@@ -115,6 +116,7 @@ class StructureCanvas(QWidget):
     delete_block_requested = Signal(str)
     anchor_block_requested = Signal(str)
     position_requested = Signal(object)
+    zoom_changed = Signal()
     block_label_requested = Signal(str, str)
 
     def __init__(self, project: Project) -> None:
@@ -127,6 +129,7 @@ class StructureCanvas(QWidget):
         self._press: tuple[int, float, str | None] | None = None
         self._label_editor: _InlineEdit | None = None
         self._resize_preview: tuple[str, int] | None = None
+        self._dragging_playhead = False
         self.playhead_beat: Fraction | None = None
         self.selection_positions_playhead = APPEARANCE.selection_moves_playhead
         self.continuous_ruler_numbers = False
@@ -149,6 +152,7 @@ class StructureCanvas(QWidget):
 
         self.beat_width = min(_MAX_BEAT_WIDTH, max(_MIN_BEAT_WIDTH, beat_width))
         self.set_project(self.project)
+        self.zoom_changed.emit()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -330,6 +334,16 @@ class StructureCanvas(QWidget):
                 )
             )
             painter.drawLine(round(x), _RULER_HEIGHT, round(x), self.height())
+        self._paint_ruler(painter)
+
+    def _paint_ruler(self, painter: QPainter) -> None:
+        maximum_beats = max((int(row.duration) for row in self._rows()), default=32)
+        maximum_x = _LABEL_WIDTH + maximum_beats * self.beat_width
+        group = max(1, self.project.default_count_group)
+        painter.fillRect(0, 0, self.width(), _RULER_HEIGHT, QColor("#f8fafc"))
+        for beat in range(maximum_beats + 1):
+            x = _LABEL_WIDTH + beat * self.beat_width
+            primary = beat % group == 0
             label_alpha = (
                 APPEARANCE.structure_primary_grid_label_alpha
                 if primary
@@ -354,10 +368,41 @@ class StructureCanvas(QWidget):
             _LABEL_WIDTH, _RULER_HEIGHT - 1, round(maximum_x), _RULER_HEIGHT - 1
         )
 
+    def _playhead_hit(self, point: QPointF) -> bool:
+        if self.playhead_beat is None or point.y() < _RULER_HEIGHT:
+            return False
+        row_index = int((point.y() - _RULER_HEIGHT) // _ROW_HEIGHT)
+        rows = self._rows()
+        if not 0 <= row_index < len(rows):
+            return False
+        row = rows[row_index]
+        if not row.start <= self.playhead_beat <= row.end:
+            return False
+        x = _LABEL_WIDTH + float(self.playhead_beat - row.start) * self.beat_width
+        return abs(point.x() - x) <= 6
+
+    def _playhead_beat_at(self, point: QPointF) -> Fraction | None:
+        if point.y() < _RULER_HEIGHT:
+            return None
+        row_index = int((point.y() - _RULER_HEIGHT) // _ROW_HEIGHT)
+        rows = self._rows()
+        if not 0 <= row_index < len(rows):
+            return None
+        row = rows[row_index]
+        local = max(
+            0.0, min(float(row.duration), (point.x() - _LABEL_WIDTH) / self.beat_width)
+        )
+        return row.start + Fraction(local).limit_denominator(1000)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus()
             if event.position().y() < _RULER_HEIGHT:
+                event.accept()
+                return
+            if self._playhead_hit(event.position()):
+                self._dragging_playhead = True
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
                 event.accept()
                 return
             row = int((event.position().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
@@ -380,6 +425,13 @@ class StructureCanvas(QWidget):
             event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging_playhead:
+            self._dragging_playhead = False
+            beat = self._playhead_beat_at(event.position())
+            if beat is not None:
+                self.position_requested.emit(beat)
+            event.accept()
+            return
         if event.button() != Qt.MouseButton.LeftButton or self._press is None:
             return
         row, start_x, block_id = self._press
@@ -478,6 +530,12 @@ class StructureCanvas(QWidget):
         editor.cancelled.connect(lambda: self._close_editor(editor))
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
+            beat = self._playhead_beat_at(event.position())
+            if beat is not None:
+                self.position_requested.emit(beat)
+            event.accept()
+            return
         if (
             self._press is not None
             and self._press[2] is not None
@@ -504,6 +562,10 @@ class StructureCanvas(QWidget):
         row = int((event.position().y() - _RULER_HEIGHT) // _ROW_HEIGHT)
         rows = self._rows()
         if 0 <= row < len(rows):
+            if self._playhead_hit(event.position()):
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+                super().mouseMoveEvent(event)
+                return
             endpoints = (
                 _LABEL_WIDTH + float(block.end - rows[row].start) * self.beat_width
                 for block in self._blocks(rows[row].id)
@@ -693,6 +755,8 @@ def _region_timestamp(project: Project, region: MusicalRegion) -> str:
 
 class StructurePanel(QWidget):
     project_changed = Signal(object)
+    undo_requested = Signal()
+    redo_requested = Signal()
     anchor_block_requested = Signal(str)
     position_requested = Signal(object)
 
@@ -700,7 +764,6 @@ class StructurePanel(QWidget):
         super().__init__()
         self.project = project
         self._clipboard: tuple[SectionPattern, ...] = ()
-        self._history: list[Project] = []
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_area = QScrollArea()
@@ -713,6 +776,11 @@ class StructurePanel(QWidget):
         )
         content = QWidget()
         layout = QVBoxLayout(content)
+        # The sticky ruler is positioned in viewport coordinates. Keep the
+        # canvas at that same origin so its labels and grid cannot drift by
+        # QVBoxLayout's platform-default content margin.
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_content = content
         generator = QHBoxLayout()
         self._selected_template = DEFAULT_STRUCTURE_TEMPLATE
         self.generate_button = QToolButton()
@@ -836,6 +904,10 @@ class StructurePanel(QWidget):
         self.status = QLabel("Drag on the blank row to append a section.")
         layout.addWidget(self.status)
         self.scroll_area.setWidget(content)
+        self.ruler = StickyRuler(
+            self.scroll_area, _RULER_HEIGHT, self.canvas._paint_ruler
+        )
+        self.canvas.zoom_changed.connect(self.ruler.refresh)
         outer_layout.addWidget(self.scroll_area)
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.canvas)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -843,9 +915,6 @@ class StructurePanel(QWidget):
         self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self.canvas)
         self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.paste_shortcut.activated.connect(self._paste_after_selected)
-        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self.canvas)
-        self.undo_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
-        self.undo_shortcut.activated.connect(self._undo)
         self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.canvas)
         self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self.delete_shortcut.activated.connect(self._delete_selection)
@@ -896,22 +965,15 @@ class StructurePanel(QWidget):
         if self.canvas.selected_block_id not in existing:
             self.canvas.selected_block_id = None
         self.canvas.set_project(project)
+        self.ruler.refresh()
 
     def set_playhead_beat(self, beat: Fraction | None) -> None:
         self.canvas.playhead_beat = beat
         self.canvas.update()
 
-    def _commit(self, project: Project, *, record_history: bool = True) -> None:
-        if record_history and project != self.project:
-            self._history.append(self.project)
+    def _commit(self, project: Project) -> None:
         self.set_project(project)
         self.project_changed.emit(project)
-
-    def remember_project(self, project: Project) -> None:
-        """Make an externally coordinated Structure change undoable."""
-
-        if not self._history or self._history[-1] != project:
-            self._history.append(project)
 
     def _zoom_in(self) -> None:
         self.canvas.set_horizontal_zoom(self.canvas.beat_width * 1.2)
@@ -975,6 +1037,7 @@ class StructurePanel(QWidget):
     def _ruler_numbers_toggle_changed(self, enabled: bool) -> None:
         self.canvas.continuous_ruler_numbers = enabled
         self.canvas.update()
+        self.ruler.refresh()
 
     def _editing_text(self) -> bool:
         return isinstance(QApplication.focusWidget(), (QLineEdit, QSpinBox))
@@ -982,12 +1045,7 @@ class StructurePanel(QWidget):
     def _undo(self) -> None:
         if self._editing_text():
             return
-        if not self._history:
-            self.status.setText("Nothing to undo.")
-            return
-        previous = self._history.pop()
-        self._commit(previous, record_history=False)
-        self.status.setText("Undid the last Structure command.")
+        self.undo_requested.emit()
 
     def _delete_selection(self) -> None:
         if self._editing_text():

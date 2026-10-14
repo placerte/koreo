@@ -2,7 +2,7 @@
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtCore import Signal
 from PySide6.QtGui import (
     QColor,
@@ -33,14 +33,18 @@ class WaveformWidget(QWidget):
         self.position_ms = 0
         self.anchor_ms: int | None = None
         self.bpm = 120.0
+        self.count_group = 8
         self.zoom_factor = 1.0
         self.view_start_ms = 0.0
         self.follow_playhead = True
         self.show_structure_labels = APPEARANCE.show_waveform_section_labels
+        self.simplified = False
         self.structure_bands: tuple[tuple[int, int, str, str], ...] = ()
         self._press_x: float | None = None
         self._pan_x: float | None = None
         self._dragging = False
+        self._dragging_playhead = False
+        self.setMouseTracking(True)
         self.setMinimumHeight(150)
         self.setAccessibleName("Song waveform and playhead")
 
@@ -55,7 +59,7 @@ class WaveformWidget(QWidget):
 
     def set_position(self, position_ms: int) -> None:
         self.position_ms = max(position_ms, 0)
-        if self.follow_playhead and self.zoom_factor > 1.0:
+        if not self.simplified and self.follow_playhead and self.zoom_factor > 1.0:
             self.view_start_ms = self.position_ms - self.visible_duration_ms * 0.35
             self._clamp_view()
         self.update()
@@ -71,6 +75,13 @@ class WaveformWidget(QWidget):
             self.bpm = bpm
             self.update()
 
+    def set_count_group(self, count_group: int) -> None:
+        """Set the project count grouping used by the simplified overview."""
+
+        if count_group > 0:
+            self.count_group = count_group
+            self.update()
+
     def set_structure_bands(self, bands: tuple[tuple[int, int, str, str], ...]) -> None:
         """Set calibrated top-level section backgrounds in media time."""
 
@@ -81,6 +92,12 @@ class WaveformWidget(QWidget):
         """Show or hide section names without changing structure bands."""
 
         self.show_structure_labels = enabled
+        self.update()
+
+    def set_simplified(self, enabled: bool) -> None:
+        """Show only Structure bands, labels, and the playhead when enabled."""
+
+        self.simplified = enabled
         self.update()
 
     def set_follow_playhead(self, enabled: bool) -> None:
@@ -99,6 +116,8 @@ class WaveformWidget(QWidget):
 
         if self.duration_ms <= 0:
             return 0.0
+        if self.simplified:
+            return float(self.duration_ms)
         return self.duration_ms / self.zoom_factor
 
     def zoom_in(self) -> None:
@@ -119,7 +138,7 @@ class WaveformWidget(QWidget):
         self.update()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
-        if self.duration_ms <= 0 or event.angleDelta().y() == 0:
+        if self.simplified or self.duration_ms <= 0 or event.angleDelta().y() == 0:
             event.ignore()
             return
         focus_time = self._x_to_time(event.position().x())
@@ -130,6 +149,14 @@ class WaveformWidget(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            playhead_x = self._time_to_x(self.position_ms)
+            if self.simplified or abs(event.position().x() - playhead_x) <= 7:
+                self._dragging_playhead = True
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+                requested = round(self._x_to_time(event.position().x()))
+                self.seek_requested.emit(max(0, min(requested, self.duration_ms)))
+                event.accept()
+                return
             self._press_x = event.position().x()
             self._pan_x = event.position().x()
             self._dragging = False
@@ -138,6 +165,11 @@ class WaveformWidget(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
+            requested = round(self._x_to_time(event.position().x()))
+            self.seek_requested.emit(max(0, min(requested, self.duration_ms)))
+            event.accept()
+            return
         if (
             self._pan_x is not None
             and self._press_x is not None
@@ -162,9 +194,22 @@ class WaveformWidget(QWidget):
             self.update()
             event.accept()
             return
+        if (
+            self.duration_ms > 0
+            and abs(event.position().x() - self._time_to_x(self.position_ms)) <= 7
+        ):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.unsetCursor()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging_playhead:
+            self._dragging_playhead = False
+            requested = round(self._x_to_time(event.position().x()))
+            self.seek_requested.emit(max(0, min(requested, self.duration_ms)))
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._pan_x is not None:
             was_dragging = self._dragging
             self._pan_x = None
@@ -178,16 +223,24 @@ class WaveformWidget(QWidget):
             return
         super().mouseReleaseEvent(event)
 
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802
+        if not self._dragging_playhead:
+            self.unsetCursor()
+        super().leaveEvent(event)
+
     def paintEvent(self, event: QPaintEvent) -> None:
         del event
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#f8fafc"))
         center = self.height() / 2
         self._paint_structure_bands(painter)
-        self._paint_beat_grid(painter)
-        painter.setPen(QPen(QColor("#94a3b8"), 1))
-        painter.drawLine(0, int(center), self.width(), int(center))
-        if self.peaks and self.duration_ms > 0:
+        if self.simplified:
+            self._paint_simplified_beat_grid(painter)
+        else:
+            self._paint_beat_grid(painter)
+            painter.setPen(QPen(QColor("#94a3b8"), 1))
+            painter.drawLine(0, int(center), self.width(), int(center))
+        if not self.simplified and self.peaks and self.duration_ms > 0:
             top: list[QPointF] = []
             bottom: list[QPointF] = []
             start_index = max(
@@ -213,7 +266,11 @@ class WaveformWidget(QWidget):
             painter.drawPolygon(polygon)
         anchor_x: float | None = None
         if self.duration_ms > 0:
-            if self.anchor_ms is not None and self._is_visible(self.anchor_ms):
+            if (
+                not self.simplified
+                and self.anchor_ms is not None
+                and self._is_visible(self.anchor_ms)
+            ):
                 anchor_x = self._time_to_x(self.anchor_ms)
                 painter.setPen(QPen(QColor("#16a34a"), 3))
                 painter.drawLine(int(anchor_x), 0, int(anchor_x), self.height())
@@ -221,8 +278,9 @@ class WaveformWidget(QWidget):
                 playhead_x = self._time_to_x(self.position_ms)
                 painter.setPen(QPen(QColor("#dc2626"), 2))
                 painter.drawLine(int(playhead_x), 0, int(playhead_x), self.height())
-        self._paint_rulers(painter)
-        if self.show_structure_labels:
+        if not self.simplified:
+            self._paint_rulers(painter)
+        if self.show_structure_labels or self.simplified:
             self._paint_structure_labels(painter)
         if anchor_x is not None:
             painter.setPen(QPen(QColor("#16a34a"), 2))
@@ -232,8 +290,8 @@ class WaveformWidget(QWidget):
     def _paint_structure_bands(self, painter: QPainter) -> None:
         for start_ms, end_ms, color, _label in self.structure_bands:
             if (
-                end_ms < self.view_start_ms
-                or start_ms > self.view_start_ms + self.visible_duration_ms
+                end_ms < self._display_start_ms
+                or start_ms > self._display_start_ms + self.visible_duration_ms
             ):
                 continue
             left = self._time_to_x(start_ms)
@@ -241,20 +299,48 @@ class WaveformWidget(QWidget):
             shade = QColor(color)
             shade.setAlphaF(1.0 - APPEARANCE.waveform_region_transparency)
             painter.fillRect(QRectF(left, 0, right - left, self.height()), shade)
+            if self.simplified:
+                painter.setPen(QPen(QColor(shade).darker(135), 1))
+                painter.drawRect(QRectF(left, 0, right - left, self.height() - 1))
 
     def _paint_structure_labels(self, painter: QPainter) -> None:
         """Draw section names above the waveform so they remain legible."""
 
         for start_ms, end_ms, _color, label in self.structure_bands:
             if (
-                end_ms < self.view_start_ms
-                or start_ms > self.view_start_ms + self.visible_duration_ms
+                end_ms < self._display_start_ms
+                or start_ms > self._display_start_ms + self.visible_duration_ms
             ):
                 continue
             if self._is_visible(start_ms):
                 left = self._time_to_x(start_ms)
                 painter.setPen(QPen(QColor("#475569"), 1))
-                painter.drawText(round(left) + 4, 36, label)
+                if self.simplified:
+                    width = max(0, round(self._time_to_x(end_ms) - left) - 8)
+                    elided = painter.fontMetrics().elidedText(
+                        label, Qt.TextElideMode.ElideRight, width
+                    )
+                    painter.drawText(
+                        QRectF(left + 4, 0, width, self.height()),
+                        Qt.AlignmentFlag.AlignVCenter,
+                        elided,
+                    )
+                else:
+                    painter.drawText(round(left) + 4, 36, label)
+
+    def _paint_simplified_beat_grid(self, painter: QPainter) -> None:
+        if self.duration_ms <= 0 or self.bpm <= 0:
+            return
+        beat_ms = 60_000 / self.bpm
+        origin_ms = float(self.anchor_ms or 0)
+        first_beat = math.ceil(-origin_ms / beat_ms)
+        last_beat = math.floor((self.duration_ms - origin_ms) / beat_ms)
+        for beat in range(first_beat, last_beat + 1):
+            if beat % self.count_group != 0:
+                continue
+            x = round(self._time_to_x(origin_ms + beat * beat_ms))
+            painter.setPen(QPen(QColor(71, 85, 105, 70), 1))
+            painter.drawLine(x, 0, x, self.height())
 
     def _paint_beat_grid(self, painter: QPainter) -> None:
         if self.duration_ms <= 0 or self.bpm <= 0:
@@ -356,24 +442,28 @@ class WaveformWidget(QWidget):
 
     def _x_to_time(self, x: float) -> float:
         if self.width() <= 0:
-            return self.view_start_ms
-        return self.view_start_ms + x / self.width() * self.visible_duration_ms
+            return self._display_start_ms
+        return self._display_start_ms + x / self.width() * self.visible_duration_ms
 
     def _time_to_x(self, milliseconds: float) -> float:
         if self.visible_duration_ms <= 0:
             return 0.0
         return (
-            (milliseconds - self.view_start_ms)
+            (milliseconds - self._display_start_ms)
             / self.visible_duration_ms
             * self.width()
         )
 
     def _is_visible(self, milliseconds: float) -> bool:
         return (
-            self.view_start_ms
+            self._display_start_ms
             <= milliseconds
-            <= self.view_start_ms + self.visible_duration_ms
+            <= self._display_start_ms + self.visible_duration_ms
         )
+
+    @property
+    def _display_start_ms(self) -> float:
+        return 0.0 if self.simplified else self.view_start_ms
 
 
 def _format_ruler_time(milliseconds: float) -> str:

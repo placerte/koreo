@@ -410,3 +410,109 @@ active handoff without changing its milestone boundary.
   both behaviors discoverable.
 - **Impact:** Future GUI implementations must preserve these command semantics
   independently from their widget or framework-level shortcut mechanism.
+
+## KOR-DEC-025 — Separate Setup and Choreography workspaces
+
+- **Date:** 2026-10-12
+- **Context:** Song setup is complete enough to become a reference for the
+  primary choreography workflow. Adding another editor directly to the main
+  window would compound distributed project mutation and private undo state.
+- **Decision:** Provide top-level Setup and Choreography tabs. Introduce a
+  Qt-independent application session for project state, dirty state, and
+  shared reversible commands. Choreography uses a compact transport and draws
+  smaller move blocks over read-only Structure rows, with a side inspector.
+- **Rationale:** A focused seam removes real coupling while the first editing
+  slice tests the product workflow; a broad speculative rewrite would not.
+- **Impact:** Future views dispatch commands rather than owning project
+  history. Setup remains authoritative for tempo, Anchor, and Structure.
+
+## KOR-DEC-026 — Default choreography to one compact lane per section
+
+- **Date:** 2026-10-13
+- **Context:** The first board used separate Lead and Follow lanes plus a
+  section-title row, consuming three rows per section even though ordinary
+  choreography authoring does not yet require multiple move tracks.
+- **Decision:** New projects use one generic Choreography track. Single-track
+  sections render as one row with the section name integrated into its label.
+  The simplified playback view shows section colors, names, and playhead but
+  no waveform peaks, beat rulers, or Anchor. Existing multi-track project data
+  remains supported and renders as labeled lanes.
+- **Rationale:** The common workflow gains substantially more board space
+  without discarding the data model needed for later multi-couple or
+  leader/follower arrangements.
+- **Impact:** Future implementations distinguish the detailed Setup waveform
+  from the simplified section overview and optimize the one-track case.
+
+## KOR-DEC-027 — Make choreography navigation compact and self-explanatory
+
+- **Date:** 2026-10-13
+- **Context:** The first simplified transport still resembled a tiny waveform,
+  duplicated seeking with a slider, and left move manipulation discoverable
+  mainly by experimentation.
+- **Decision:** Use a half-height, full-fit section overview with outlines,
+  elided labels, beat marks, and a directly draggable playhead. Remove the
+  redundant slider. Add semantic cursors, a fixed move Edit strip, and context
+  actions. Reopen programmed projects in Choreography and place the normally
+  styled project-name field at the right of the fixed project toolbar.
+- **Rationale:** Stable navigation and visible affordances dedicate more space
+  to authoring while making direct manipulation understandable.
+- **Impact:** Detailed waveform zoom/pan remains Setup-only; both playback
+  views share direct playhead dragging and future GUIs preserve these cues.
+
+## KOR-DEC-028 — Keep the fresh and default choreography view quiet
+
+- **Date:** 2026-10-13
+- **Context:** Per-beat marks made the full-song overview busy, seeded demo
+  moves incorrectly implied a programmed project at launch, and an always-open
+  inspector consumed board width before a move was selected.
+- **Decision:** Draw simplified overview divisions at the configured default
+  count-group interval. Launch with no moves so Setup remains active. Collapse
+  the move inspector by default and toggle it from the left side of the Edit
+  strip with Lucide panel-right open/close icons.
+- **Rationale:** Defaults should represent an unprogrammed project and reserve
+  maximum space for the primary board until details are requested.
+- **Impact:** Representative test data remains available separately from the
+  starter project; count-group changes refresh overview divisions immediately.
+
+## KOR-DEC-029 — Extend direct manipulation into the boards
+
+- **Date:** 2026-10-13
+- **Context:** Playback views allowed direct playhead dragging, but their board
+  representations did not. Touching move edges also made resize ownership
+  unstable, and the inspector toggle read as another edit command.
+- **Decision:** Make the Structure and Choreography playheads draggable across
+  both axes, mapping through whichever section row is under the pointer. When
+  multiple touching moves share a hit, prefer the selected move. Place the
+  inspector toggle in a separate right-aligned toolbar group.
+- **Rationale:** Consistent direct manipulation reduces travel to playback,
+  preserves user focus during precise resizing, and clarifies toolbar roles.
+- **Impact:** Vertical playhead dragging may intentionally jump across gaps;
+  ambiguous edge priority is selection-dependent but ordinary hits are not.
+
+## KOR-DEC-030 — Pin and synchronize board rulers
+
+- **Date:** 2026-10-13
+- **Context:** Long structures scrolled count labels out of view, and only the
+  Structure board could switch between repeating dance counts and continuous
+  beat numbers.
+- **Decision:** Render each board ruler as a fixed viewport overlay synchronized
+  with horizontal scroll and zoom. Give Choreography the same icon, tooltip,
+  checked state, and repeating/continuous numbering behavior as Structure.
+- **Rationale:** Count context must remain visible during long-form editing and
+  equivalent grids should expose equivalent display controls.
+- **Impact:** The canvas retains its coordinate system while the sticky ruler
+  mirrors its presentation; future GUIs keep ruler and grid state synchronized.
+
+## KOR-DEC-031 — Share board zoom behavior and coordinate origins
+
+- **Date:** 2026-10-14
+- **Context:** Structure's pinned ruler inherited the viewport origin while its
+  canvas inherited a platform layout margin, causing a visible horizontal
+  offset. Choreography also lacked Structure's board-level zoom controls.
+- **Decision:** Give both board canvases the same zero-offset ruler origin and
+  horizontal zoom interaction: toolbar out/in/fit controls plus Ctrl+wheel,
+  with ordinary wheel input reserved for vertical scrolling.
+- **Rationale:** Equivalent beat grids should align and navigate consistently,
+  independent of platform layout defaults or editing mode.
+- **Impact:** Zoom changes repaint both canvas and pinned ruler; future UI
+  rewrites must preserve their shared coordinate origin and interaction model.

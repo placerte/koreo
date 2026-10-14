@@ -10,6 +10,7 @@ import pytest
 
 from koreo.audio import AudioSource
 from koreo.domain.calibration import BeatCalibration
+from koreo.domain.models import ChoreographyTrack, Move
 from koreo.fixtures import representative_project
 from koreo.persistence import ProjectFileError, load_project, save_project
 
@@ -40,6 +41,40 @@ def test_project_without_audio_round_trips(tmp_path: Path) -> None:
     project = representative_project()
     save_project(destination, project, Fraction(120), None)
     assert load_project(destination, tmp_path / "extract").project == project
+
+
+def test_legacy_demo_tracks_and_moves_migrate_to_empty_choreography_track(
+    tmp_path: Path,
+) -> None:
+    project = representative_project()
+    legacy = replace(
+        project,
+        tracks=(
+            ChoreographyTrack("lead", "Lead", 0, "#3b82f6"),
+            ChoreographyTrack("follow", "Follow", 1, "#f97316"),
+        ),
+        moves=(
+            Move("lead-rock", "lead", Fraction(0), Fraction(1), "Rock step"),
+            Move("lead-triple", "lead", Fraction(2), Fraction(1), "Triple"),
+            Move("lead-cross-section", "lead", Fraction(4), Fraction(1), "Send"),
+            Move("lead-cross-wrap", "lead", Fraction(6), Fraction(1), "Cross"),
+            Move("follow-basic", "follow", Fraction(0), Fraction(1), "Basic"),
+            Move("follow-tuck", "follow", Fraction(2), Fraction(1), "Tuck"),
+            Move("follow-gap", "follow", Fraction(4), Fraction(1), "Travel"),
+            Move("follow-finish", "follow", Fraction(6), Fraction(1), "Finish"),
+        ),
+    )
+    destination = tmp_path / "legacy.kro"
+    save_project(destination, legacy, Fraction(140), None)
+
+    loaded = load_project(destination, tmp_path / "extract")
+
+    assert loaded.migrated
+    assert loaded.project.regions == project.regions
+    assert loaded.project.moves == ()
+    assert tuple((track.id, track.name) for track in loaded.project.tracks) == (
+        ("choreography", "Choreography"),
+    )
 
 
 def test_unsupported_version_is_rejected_without_extraction(tmp_path: Path) -> None:

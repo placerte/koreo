@@ -96,8 +96,9 @@ uv sync
 uv run koreo
 ```
 
-The app opens directly into its Structure workspace. Use the **Choose audio
-track** music-file button in the waveform toolbar to select an
+The app opens with **Setup** and **Choreography** workspaces. Setup is the
+authoritative place for audio, tempo, Anchor, and song-structure editing. Use
+the **Choose audio track** music-file button in the waveform toolbar to select an
 MP3 or WAV and wait for decoder confirmation. Manual BPM is entered beside the
 song controls. **Tap BPM** then opens a focused modal that starts the song
 automatically, shows its playhead, and is immediately ready for Space taps.
@@ -124,6 +125,16 @@ Shift-click fills a row range, Ctrl+Z undoes the latest Structure command,
 Delete removes the focused block or selected rows. Enter inserts a new section
 after the selection, while Ctrl+Enter inserts an 8-count block at the current
 selection.
+
+Switch to **Choreography** to use the completed Structure as a read-only
+background. Smaller move blocks overlay its count grid: drag empty time to
+create, drag blocks or their edges to move/resize, and hold Shift to bypass
+whole-beat snapping. Double-click edits the short label; the right inspector
+edits label, notes, start, and duration. Delete removes the selected move,
+Ctrl+Z/Ctrl+Shift+Z share history with Setup, and same-track overlaps offer
+Cancel, Trim, or Shift. Choreography uses a compact section overview without
+waveform peaks and defaults to one move lane per section so the board owns
+most of the window.
 
 Run the complete automated checks:
 

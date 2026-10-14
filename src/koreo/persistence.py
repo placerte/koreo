@@ -28,6 +28,20 @@ class LoadedProject:
     tempo_bpm: Fraction
     audio_source: AudioSource | None
     waveform_peaks: tuple[tuple[float, float], ...] = ()
+    migrated: bool = False
+
+
+_LEGACY_DEMO_TRACK_IDS = {"lead", "follow"}
+_LEGACY_DEMO_MOVE_IDS = {
+    "lead-rock",
+    "lead-triple",
+    "lead-cross-section",
+    "lead-cross-wrap",
+    "follow-basic",
+    "follow-tuck",
+    "follow-gap",
+    "follow-finish",
+}
 
 
 def save_project(
@@ -105,7 +119,11 @@ def load_project(path: Path, extraction_root: Path) -> LoadedProject:
                     raise ProjectFileError("Saved waveform cache is invalid.")
                 peaks = _decode_peaks(waveform_raw)
                 loaded = LoadedProject(
-                    loaded.project, loaded.tempo_bpm, loaded.audio_source, peaks
+                    loaded.project,
+                    loaded.tempo_bpm,
+                    loaded.audio_source,
+                    peaks,
+                    loaded.migrated,
                 )
             audio = raw.get("audio")
             if audio is not None:
@@ -131,6 +149,7 @@ def load_project(path: Path, extraction_root: Path) -> LoadedProject:
                     loaded.tempo_bpm,
                     source,
                     loaded.waveform_peaks,
+                    loaded.migrated,
                 )
             return loaded
     except (OSError, BadZipFile, json.JSONDecodeError, KeyError, TypeError) as error:
@@ -271,11 +290,34 @@ def _decode(raw: Any) -> LoadedProject:
         count_origin=_fraction(data["count_origin"]),
         calibration=calibration,
     )
+    project, migrated = _migrate_legacy_demo_choreography(project)
     try:
         validate_project(project)
     except ProjectValidationError as error:
         raise ProjectFileError(str(error)) from error
-    return LoadedProject(project, _fraction(raw["tempo_bpm"]), None)
+    return LoadedProject(project, _fraction(raw["tempo_bpm"]), None, migrated=migrated)
+
+
+def _migrate_legacy_demo_choreography(project: Project) -> tuple[Project, bool]:
+    """Remove the exact two-track demo seed from early prototype projects."""
+
+    if {track.id for track in project.tracks} != _LEGACY_DEMO_TRACK_IDS:
+        return project, False
+    if {move.id for move in project.moves} != _LEGACY_DEMO_MOVE_IDS:
+        return project, False
+    return (
+        Project(
+            project.id,
+            project.name,
+            (ChoreographyTrack("choreography", "Choreography", 0, "#3b82f6"),),
+            project.regions,
+            (),
+            project.default_count_group,
+            project.count_origin,
+            project.calibration,
+        ),
+        True,
+    )
 
 
 def _encode_fraction(value: Fraction) -> dict[str, int]:

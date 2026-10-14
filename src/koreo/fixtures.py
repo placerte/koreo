@@ -1,5 +1,6 @@
 """Deterministic in-code projects shared by the app and tests."""
 
+from dataclasses import replace
 from fractions import Fraction
 
 from koreo.domain.models import ChoreographyTrack, Move, MusicalRegion, Project
@@ -15,10 +16,7 @@ def representative_project() -> Project:
         name="Swing Demo",
         default_count_group=8,
         count_origin=Fraction(0),
-        tracks=(
-            ChoreographyTrack("lead", "Lead", 0, "#3b82f6"),
-            ChoreographyTrack("follow", "Follow", 1, "#f97316"),
-        ),
+        tracks=(ChoreographyTrack("choreography", "Choreography", 0, "#3b82f6"),),
         regions=(
             MusicalRegion("intro", "Intro", Fraction(0), Fraction(6), count_group=6),
             MusicalRegion("a-1", "A", Fraction(6), Fraction(16)),
@@ -28,10 +26,16 @@ def representative_project() -> Project:
             MusicalRegion("a-2", "A", Fraction(36), Fraction(16)),
         ),
         moves=(
-            Move("lead-rock", "lead", Fraction(0), Fraction(4), "Rock step"),
+            Move(
+                "lead-rock",
+                "choreography",
+                Fraction(0),
+                Fraction(4),
+                "Rock step",
+            ),
             Move(
                 "lead-triple",
-                "lead",
+                "choreography",
                 Fraction(11, 2),
                 Fraction(9, 2),
                 "Triple-step variation",
@@ -39,30 +43,21 @@ def representative_project() -> Project:
             ),
             Move(
                 "lead-cross-section",
-                "lead",
+                "choreography",
                 Fraction(20),
                 Fraction(6),
                 "Send out",
             ),
             Move(
                 "lead-cross-wrap",
-                "lead",
+                "choreography",
                 Fraction(30),
                 Fraction(5),
                 "Cross-line turn",
             ),
-            Move("follow-basic", "follow", Fraction(7), Fraction(5), "Basic"),
-            Move("follow-tuck", "follow", Fraction(14), Fraction(6), "Tuck turn"),
-            Move(
-                "follow-gap",
-                "follow",
-                Fraction(21),
-                Fraction(4),
-                "Travel through gap",
-            ),
             Move(
                 "follow-finish",
-                "follow",
+                "choreography",
                 Fraction(38),
                 Fraction(10),
                 "Final partnered phrase",
@@ -71,3 +66,9 @@ def representative_project() -> Project:
     )
     validate_project(project)
     return project
+
+
+def starter_project() -> Project:
+    """Return the prototype's unprogrammed startup project."""
+
+    return replace(representative_project(), moves=())

@@ -4,7 +4,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from koreo.fixtures import representative_project
+from koreo.fixtures import starter_project
 from koreo.gui.main_window import MainWindow
 
 
@@ -12,7 +12,7 @@ def main() -> int:
     """Run the Koreo editor prototype."""
 
     application = QApplication.instance() or QApplication(sys.argv)
-    window = MainWindow(representative_project())
+    window = MainWindow(starter_project())
     window.show()
     return application.exec()
 

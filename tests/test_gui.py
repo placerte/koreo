@@ -14,21 +14,32 @@ from pytest import MonkeyPatch
 from pytestqt.qtbot import QtBot
 
 from koreo.audio import AudioSource
+from koreo.domain.models import ChoreographyTrack, Move, MusicalRegion, Project
 from koreo.fixtures import representative_project
 from koreo.gui.bpm_dialog import BpmDialog
+from koreo.gui.choreography_panel import MoveEditRequest
 from koreo.gui.main_window import MainWindow
 from koreo.gui.structure_panel import _leader_points
 from koreo.persistence import load_project
 
 
-def test_window_uses_structure_as_its_single_workspace(qtbot: QtBot) -> None:
+def _test_window(project: Project) -> MainWindow:
+    """Create a window whose pytest teardown never opens a save dialog."""
+
+    return MainWindow(project, prompt_to_save_on_close=False)
+
+
+def test_window_opens_programmed_project_in_choreography_workspace(
+    qtbot: QtBot,
+) -> None:
     project = representative_project()
     snapshot = repr(project)
-    window = MainWindow(project)
+    window = _test_window(project)
     qtbot.addWidget(window)
     window.show()
 
-    assert window.structure_panel.isVisible()
+    assert window.choreography_panel.isVisible()
+    assert window.workspace_tabs.currentIndex() == 1
     assert window.project is project
     assert repr(project) == snapshot
     assert window.export_creation_sheet_action.text() == "Export Creation Sheet PDF…"
@@ -38,10 +49,390 @@ def test_window_uses_structure_as_its_single_workspace(qtbot: QtBot) -> None:
     assert not window.save_action.icon().isNull()
 
 
+def test_backend_window_can_close_dirty_project_without_prompt(
+    qtbot: QtBot, monkeypatch: MonkeyPatch
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.session.mark_external_change()
+    assert window.dirty
+
+    def unexpected_prompt(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("backend-test close opened an unsaved-changes dialog")
+
+    monkeypatch.setattr("koreo.gui.main_window.QMessageBox.warning", unexpected_prompt)
+    assert window.close()
+
+
+def test_setup_and_choreography_modes_share_project_and_compact_transport(
+    qtbot: QtBot,
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.show()
+    window.workspace_tabs.setCurrentIndex(0)
+    QApplication.processEvents()
+
+    assert window.workspace_tabs.tabText(0) == "Setup"
+    assert window.workspace_tabs.tabText(1) == "Choreography"
+    assert window.setup_tools.isVisible()
+    assert len(window.choreography_panel.project.tracks) == 1
+    tab_top = window.workspace_tabs.geometry().top()
+
+    window.workspace_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+
+    assert not window.setup_tools.isVisible()
+    assert window.waveform.height() == 24
+    assert window.waveform.simplified
+    assert window.waveform.count_group == window.project.default_count_group
+    assert not window.choreography_panel.inspector.isVisible()
+    assert window.workspace_tabs.geometry().top() == tab_top
+    assert window.workspace_stack.currentWidget() is window.choreography_panel
+    assert (
+        window.workspace_stack.geometry().top() - window.transport.geometry().bottom()
+        <= 8
+    )
+    assert window.choreography_panel.canvas.project is window.project
+
+
+def test_simplified_playback_is_full_fit_draggable_and_has_no_slider(
+    qtbot: QtBot,
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.show()
+    window.waveform.set_duration(60_000)
+    window.waveform.resize(800, 24)
+    window.waveform.zoom_factor = 4.0
+    window.waveform.view_start_ms = 10_000
+    window.workspace_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+
+    assert window.waveform.visible_duration_ms == 60_000
+    assert window.waveform._time_to_x(30_000) == 400
+    assert not window.seek_slider.isVisible()
+    assert window.project_name_edit.parent() is not window.centralWidget()
+
+    window.waveform.set_position(15_000)
+    playhead_x = round(window.waveform._time_to_x(15_000))
+    QTest.mouseMove(window.waveform, QPoint(playhead_x, 12))
+    assert window.waveform.cursor().shape() == Qt.CursorShape.SizeHorCursor
+    seeks = QSignalSpy(window.waveform.seek_requested)
+    QTest.mousePress(
+        window.waveform, Qt.MouseButton.LeftButton, pos=QPoint(playhead_x, 12)
+    )
+    QTest.mouseMove(window.waveform, QPoint(playhead_x + 100, 12))
+    QTest.mouseRelease(
+        window.waveform,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(playhead_x + 100, 12),
+    )
+    assert seeks.count() >= 2
+    assert seeks.at(seeks.count() - 1)[0] > 15_000
+
+
+def test_choreography_toolbar_and_hover_cursors_expose_move_editing(
+    qtbot: QtBot,
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.show()
+    window.workspace_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+    canvas = window.choreography_panel.canvas
+    canvas.resize(canvas.minimumSize())
+    move, rect = canvas._segment_rects()[0]
+
+    for button in (
+        window.choreography_panel.inspector_button,
+        window.choreography_panel.add_button,
+        window.choreography_panel.rename_button,
+        window.choreography_panel.undo_button,
+        window.choreography_panel.redo_button,
+        window.choreography_panel.delete_button,
+    ):
+        assert not button.icon().isNull()
+        assert button.toolTip()
+
+    window.choreography_panel.inspector_button.click()
+    assert window.choreography_panel.inspector.isVisible()
+    assert (
+        window.choreography_panel.inspector_button.accessibleName()
+        == "Close move details panel"
+    )
+    window.choreography_panel.inspector_button.click()
+    assert not window.choreography_panel.inspector.isVisible()
+
+    QTest.mouseMove(canvas, rect.center().toPoint())
+    assert canvas.cursor().shape() == Qt.CursorShape.OpenHandCursor
+    QTest.mouseMove(canvas, QPoint(round(rect.right()), round(rect.center().y())))
+    assert canvas.cursor().shape() == Qt.CursorShape.SizeHorCursor
+    canvas.selected_move_id = move.id
+    window.choreography_panel._selection_changed(move.id)
+    window.choreography_panel.rename_button.click()
+    assert canvas._editor is not None
+
+
+def test_choreography_board_exposes_horizontal_zoom(qtbot: QtBot) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    panel = window.choreography_panel
+
+    for button in (
+        panel.zoom_out_button,
+        panel.zoom_in_button,
+        panel.zoom_fit_button,
+    ):
+        assert not button.icon().isNull()
+        assert button.toolTip()
+
+    initial_width = panel.canvas.beat_width
+    panel.zoom_in_button.click()
+    assert panel.canvas.beat_width > initial_width
+
+    ctrl_wheel = QWheelEvent(
+        QPointF(300, 100),
+        QPointF(300, 100),
+        QPoint(),
+        QPoint(0, -120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ControlModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(panel.canvas, ctrl_wheel)
+    assert panel.canvas.beat_width < initial_width * 1.2
+
+    panel.canvas.resize(panel.canvas.minimumSize())
+    ruler_image = panel.canvas.grab().toImage()
+    major_x = round(145)
+    minor_x = round(145 + panel.canvas.beat_width)
+    tick_y = 25
+    assert (
+        ruler_image.pixelColor(major_x, tick_y).lightness()
+        < ruler_image.pixelColor(minor_x, tick_y).lightness()
+    )
+
+
+def test_board_playheads_drag_horizontally_and_between_rows(qtbot: QtBot) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.show()
+    window.workspace_tabs.setCurrentIndex(0)
+    QApplication.processEvents()
+
+    structure = window.structure_panel.canvas
+    structure.resize(structure.minimumSize())
+    structure.playhead_beat = Fraction(2)
+    structure_positions = QSignalSpy(structure.position_requested)
+    structure_start = QPoint(round(140 + 2 * structure.beat_width), 28 + 27)
+    structure_end = QPoint(round(140 + 3 * structure.beat_width), 28 + 54 + 27)
+    QTest.mousePress(structure, Qt.MouseButton.LeftButton, pos=structure_start)
+    QTest.mouseMove(structure, structure_end)
+    QTest.mouseRelease(structure, Qt.MouseButton.LeftButton, pos=structure_end)
+    assert structure_positions.count() >= 1
+    assert structure_positions.at(structure_positions.count() - 1)[0] == Fraction(9)
+
+    window.workspace_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+    choreography = window.choreography_panel.canvas
+    choreography.resize(choreography.minimumSize())
+    choreography.playhead_beat = Fraction(2)
+    choreography_positions = QSignalSpy(choreography.position_requested)
+    first_row_y = 28 + 17
+    second_row_y = first_row_y + choreography._row_height()
+    choreography_start = QPoint(145 + 2 * 28, first_row_y)
+    choreography_end = QPoint(145 + 3 * 28, second_row_y)
+    QTest.mousePress(choreography, Qt.MouseButton.LeftButton, pos=choreography_start)
+    QTest.mouseMove(choreography, choreography_end)
+    QTest.mouseRelease(choreography, Qt.MouseButton.LeftButton, pos=choreography_end)
+    assert choreography_positions.count() >= 1
+    assert choreography_positions.at(choreography_positions.count() - 1)[0] == Fraction(
+        9
+    )
+
+
+def test_selected_move_wins_ambiguous_touching_edge_hit(qtbot: QtBot) -> None:
+    project = Project(
+        "touching",
+        "Touching",
+        (ChoreographyTrack("track", "Choreography", 0, "#2563eb"),),
+        (MusicalRegion("section", "A", Fraction(0), Fraction(16)),),
+        (
+            Move("left", "track", Fraction(0), Fraction(4), "Left"),
+            Move("right", "track", Fraction(4), Fraction(4), "Right"),
+        ),
+    )
+    window = _test_window(project)
+    qtbot.addWidget(window)
+    canvas = window.choreography_panel.canvas
+    boundary = QPointF(145 + 4 * 28, 28 + 17)
+
+    canvas.selected_move_id = "left"
+    hit = canvas._move_hit(boundary)
+
+    assert hit is not None
+    assert hit[0].id == "left"
+
+
+def test_board_rulers_stay_fixed_and_share_numbering_toggle(qtbot: QtBot) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    window.structure_panel.generate_button.click()
+    window.resize(900, 420)
+    window.show()
+    QApplication.processEvents()
+
+    structure = window.structure_panel
+    window.workspace_tabs.setCurrentIndex(0)
+    QApplication.processEvents()
+    structure_scroll = structure.scroll_area.verticalScrollBar()
+    assert structure_scroll.maximum() > 0
+    structure_scroll.setValue(structure_scroll.maximum())
+    assert structure.ruler.y() == 0
+    assert structure.ruler.parent() is structure.scroll_area.viewport()
+    assert structure.ruler.isVisible()
+    margins = structure.scroll_content.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
+        0,
+        0,
+        0,
+        0,
+    )
+
+    choreography = window.choreography_panel
+    window.workspace_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+    choreography.canvas.setMinimumHeight(
+        choreography.scroll_area.viewport().height() + 100
+    )
+    QApplication.processEvents()
+    choreography_scroll = choreography.scroll_area.verticalScrollBar()
+    assert choreography_scroll.maximum() > 0
+    choreography_scroll.setValue(choreography_scroll.maximum())
+    assert choreography.ruler.y() == 0
+    assert choreography.ruler.parent() is choreography.scroll_area.viewport()
+    assert choreography.ruler.isVisible()
+
+    assert (
+        choreography.ruler_numbers_toggle.accessibleName()
+        == structure.ruler_numbers_toggle.accessibleName()
+    )
+    choreography.ruler_numbers_toggle.setChecked(True)
+    assert choreography.canvas.continuous_ruler_numbers
+    choreography.ruler_numbers_toggle.setChecked(False)
+    assert not choreography.canvas.continuous_ruler_numbers
+
+
+def test_choreography_edit_uses_shared_history_and_inspector(qtbot: QtBot) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    existing_ids = {move.id for move in window.project.moves}
+
+    window._choreography_edit(
+        MoveEditRequest(
+            "create",
+            "choreography",
+            Fraction(48),
+            Fraction(2),
+            Fraction(49),
+        )
+    )
+    created = next(move for move in window.project.moves if move.id not in existing_ids)
+    assert created.label == "New move"
+    assert window.choreography_panel.canvas.selected_move_id == created.id
+    assert window.dirty
+
+    window.choreography_panel.label_edit.setText("Final pose")
+    window.choreography_panel.notes_edit.setPlainText("Hold the line")
+    window.choreography_panel.apply_button.click()
+    updated = next(move for move in window.project.moves if move.id == created.id)
+    assert (updated.label, updated.notes) == ("Final pose", "Hold the line")
+
+    window._undo()
+    assert (
+        next(move for move in window.project.moves if move.id == created.id).label
+        == "New move"
+    )
+    window._redo()
+    assert (
+        next(move for move in window.project.moves if move.id == created.id).label
+        == "Final pose"
+    )
+
+
+def test_choreography_canvas_draws_snapped_move_request(qtbot: QtBot) -> None:
+    project = Project(
+        "draw-test",
+        "Draw test",
+        (ChoreographyTrack("track", "Choreography", 0, "#2563eb"),),
+        (MusicalRegion("section", "A", Fraction(0), Fraction(32)),),
+        (),
+    )
+    window = _test_window(project)
+    qtbot.addWidget(window)
+    window.show()
+    window.workspace_tabs.setCurrentIndex(1)
+    canvas = window.choreography_panel.canvas
+    canvas.resize(canvas.minimumSize())
+    requests = QSignalSpy(canvas.edit_requested)
+
+    start = QPoint(145 + 4 * 28, 28 + 17)
+    end = QPoint(145 + 8 * 28, 28 + 17)
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(canvas, end)
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=end)
+
+    assert requests.count() == 1
+    request = requests.at(0)[0]
+    assert isinstance(request, MoveEditRequest)
+    assert (request.start, request.duration) == (Fraction(4), Fraction(4))
+
+
+def test_cross_section_move_uses_multiple_segments_for_one_identity(
+    qtbot: QtBot,
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    segments = [
+        rect
+        for move, rect in window.choreography_panel.canvas._segment_rects()
+        if move.id == "lead-cross-section"
+    ]
+
+    assert len(segments) == 2
+    assert all(rect.height() < 34 for rect in segments)
+
+
+def test_choreography_inline_label_enter_accepts_and_escape_cancels(
+    qtbot: QtBot,
+) -> None:
+    window = _test_window(representative_project())
+    qtbot.addWidget(window)
+    canvas = window.choreography_panel.canvas
+    move_id = window.project.moves[0].id
+    labels = QSignalSpy(canvas.label_requested)
+
+    canvas.begin_label_edit(move_id)
+    assert canvas._editor is not None
+    QTest.keyClicks(canvas._editor, "Changed")
+    QTest.keyClick(canvas._editor, Qt.Key.Key_Return)
+    assert labels.count() == 1
+    assert labels.at(0) == [move_id, "Changed"]
+
+    canvas.begin_label_edit(move_id)
+    assert canvas._editor is not None
+    QTest.keyClicks(canvas._editor, "Discarded")
+    QTest.keyClick(canvas._editor, Qt.Key.Key_Escape)
+    assert labels.count() == 1
+
+
 def test_creation_sheet_export_cancel_and_unsaved_filename(
     qtbot: QtBot, monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     calls: list[tuple[Path, str]] = []
 
@@ -69,7 +460,7 @@ def test_creation_sheet_export_cancel_and_unsaved_filename(
 
 
 def test_project_name_editor_updates_authoritative_project(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
 
     window.project_name_edit.setText("  Practice Draft  ")
@@ -77,8 +468,8 @@ def test_project_name_editor_updates_authoritative_project(qtbot: QtBot) -> None
 
     assert window.project.name == "Practice Draft"
     assert window.project_name_edit.text() == "Practice Draft"
-    assert window.project_name_edit.font().bold()
-    assert window.project_name_edit.minimumWidth() >= 320
+    assert not window.project_name_edit.font().bold()
+    assert window.project_name_edit.minimumWidth() >= 260
     assert window.dirty is True
 
     window._set_clean()
@@ -90,7 +481,7 @@ def test_project_name_editor_updates_authoritative_project(qtbot: QtBot) -> None
 
 
 def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     window.structure_panel.generate_button.click()
 
@@ -138,7 +529,7 @@ def test_structure_panel_generates_aaba_rows(qtbot: QtBot) -> None:
 def test_structure_block_annotation_updates_without_timing_change(
     qtbot: QtBot,
 ) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
     panel.generate_button.click()
@@ -175,7 +566,7 @@ def test_note_leader_uses_left_right_and_bottom_text_anchors() -> None:
 
 
 def test_inline_block_edit_accepts_enter_and_escape_cancels(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     window.show()
     window.activateWindow()
@@ -233,11 +624,12 @@ def test_inline_block_edit_accepts_enter_and_escape_cancels(qtbot: QtBot) -> Non
 
 
 def test_structure_panel_scrolls_when_window_is_constrained(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     window.structure_panel.generate_button.click()
     window.resize(900, 480)
     window.show()
+    window.workspace_tabs.setCurrentIndex(0)
     QApplication.processEvents()
 
     scroll_bar = window.structure_panel.scroll_area.verticalScrollBar()
@@ -251,7 +643,7 @@ def test_structure_panel_scrolls_when_window_is_constrained(qtbot: QtBot) -> Non
 def test_structure_board_toolbar_exposes_commands_and_horizontal_zoom(
     qtbot: QtBot,
 ) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
     panel.generate_button.click()
@@ -303,7 +695,7 @@ def test_structure_board_toolbar_exposes_commands_and_horizontal_zoom(
 
 
 def test_structure_template_split_button_selects_forms(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
 
@@ -334,7 +726,7 @@ def test_structure_template_split_button_selects_forms(qtbot: QtBot) -> None:
 
 
 def test_structure_block_aligns_to_existing_waveform_anchor(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     window.structure_panel.generate_button.click()
     sections = [r for r in window.project.regions if r.parent_id is None]
@@ -369,7 +761,7 @@ def test_structure_block_aligns_to_existing_waveform_anchor(qtbot: QtBot) -> Non
 
 
 def test_structure_selection_can_seek_section_or_block(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     window.structure_panel.generate_button.click()
     window._set_anchor()
@@ -387,7 +779,7 @@ def test_structure_selection_can_seek_section_or_block(qtbot: QtBot) -> None:
 
 
 def test_structure_rows_support_multi_copy_and_paste(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
     panel.generate_button.click()
@@ -408,7 +800,7 @@ def test_structure_rows_support_multi_copy_and_paste(qtbot: QtBot) -> None:
 
 
 def test_structure_keyboard_commands_add_delete_and_undo(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
     panel.generate_button.click()
@@ -423,6 +815,7 @@ def test_structure_keyboard_commands_add_delete_and_undo(qtbot: QtBot) -> None:
     panel.canvas.selected_id = sections[0].id
     panel.canvas.selected_block_id = first_block.id
     window.show()
+    window.workspace_tabs.setCurrentIndex(0)
     panel.canvas.setFocus()
     QApplication.processEvents()
 
@@ -458,7 +851,7 @@ def test_structure_keyboard_commands_add_delete_and_undo(qtbot: QtBot) -> None:
 
 
 def test_structure_ctrl_and_shift_row_selection(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     panel = window.structure_panel
     panel.generate_button.click()
@@ -485,7 +878,7 @@ def test_structure_ctrl_and_shift_row_selection(qtbot: QtBot) -> None:
 def test_main_window_saves_current_structure_and_tracks_dirty_state(
     qtbot: QtBot, tmp_path: Path
 ) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
     destination = tmp_path / "saved.kro"
     window.project_path = destination
@@ -499,7 +892,7 @@ def test_main_window_saves_current_structure_and_tracks_dirty_state(
 
     loaded = load_project(destination, tmp_path / "extract")
     assert loaded.project == window.project
-    reopened = MainWindow(representative_project())
+    reopened = _test_window(representative_project())
     qtbot.addWidget(reopened)
     reopened._apply_loaded_project(loaded, destination)
     assert reopened.project_name_edit.text() == "Saved project title"
@@ -536,7 +929,7 @@ def test_spacebar_taps_bpm_and_cancel_stops_playback(qtbot: QtBot) -> None:
 
 
 def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
 
     assert window.choose_song_button.text() == ""
@@ -581,6 +974,7 @@ def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
     window.count_group_spin.setValue(6)
     assert window.project.count_origin == Fraction(-2)
     assert window.project.default_count_group == 6
+    assert window.waveform.count_group == 6
     assert window.timeline_view.model.count_origin == Fraction(-2)
 
     window.bpm_edit.setValue(118.75)
@@ -595,8 +989,9 @@ def test_main_window_exposes_song_and_tempo_actions(qtbot: QtBot) -> None:
 
 
 def test_main_waveform_transport_and_anchor_render(qtbot: QtBot) -> None:
-    window = MainWindow(representative_project())
+    window = _test_window(representative_project())
     qtbot.addWidget(window)
+    window.workspace_tabs.setCurrentIndex(0)
     window.transport.setVisible(True)
     window.waveform.set_duration(60_000)
     window.waveform.resize(800, 150)

@@ -18,11 +18,12 @@ revises them.
 
 ## Song selection and tempo
 
-- The main project header exposes an editable project name. Accepting a
+- The fixed main project toolbar exposes an editable project name, right
+  aligned opposite Open and Save. Accepting a
   non-empty changed value updates authoritative project state, marks it dirty,
   persists through save/load, and supplies the creation-sheet title. Empty
-  input restores the current name. It uses a wider, bold title-sized treatment
-  so the project identity is visually distinct from ordinary form fields.
+  input restores the current name. It uses normal form typography and enough
+  width to remain useful without overpowering the toolbar.
 - Song selection belongs to the main project UI, not the Tap BPM modal.
 - Song selection, filename, numeric BPM input, Tap BPM, waveform display
   toggles, zoom, Follow, and Anchor actions share one waveform toolbar below
@@ -50,9 +51,14 @@ revises them.
 
 ## Main playback and keyboard ownership
 
-- Main playback provides Play/Pause, Stop, seek, position, and duration.
-- Structure is the sole visible editing workspace in the current prototype;
-  the stale read-only Timeline and Sheet tabs are not presented.
+- Main playback provides Play/Pause, Stop, direct playhead seeking, position,
+  and duration. The waveform/section overview is the seek surface; a separate
+  media slider is not shown.
+- Top-level **Setup** and **Choreography** tabs separate modal editing intent.
+  Setup owns audio calibration and editable Structure; Choreography treats the
+  same Structure as a read-only reference and edits independent moves.
+- Both modes share one project, playback controller, playhead, save state, and
+  application-level reversible command history.
 - Count origin and default count-group size are infrequently changed advanced
   song settings. They live in a settings dialog opened by a `flask-conical`
   icon alongside the waveform tools and use numeric controls.
@@ -73,6 +79,63 @@ revises them.
 - Inline text editors accept and close on Enter. Escape closes them and
   discards the current edit. Losing focus accepts the edit.
 - A modal may explicitly own Space. Tap BPM owns it for taps while open.
+
+## Choreography workspace
+
+- Choreography mode collapses playback to Play/Pause, Stop, a seekable section
+  overview, and a fixed-width right-aligned time label. The overview retains
+  outlined section colors, non-overlapping elided names, subtle beat marks,
+  and the playhead but omits waveform peaks, labeled rulers, and the grid
+  Anchor. It is always full-song fit and ignores wheel zoom. Song selection,
+  BPM, calibration, Anchor, and advanced song controls remain in Setup.
+- The simplified overview draws one division mark per configured default count
+  group rather than one per beat. A fresh application session contains no
+  choreography moves and therefore opens in Setup.
+- Hovering the red playhead shows a horizontal-resize cursor. Dragging it seeks
+  continuously in both simplified and detailed playback; dragging elsewhere
+  in the detailed waveform retains pan behavior.
+- The board repeats the vertical section/count layout as a read-only
+  background. Smaller track-colored move blocks overlay inset lanes aligned to
+  exact song beats, leaving the Structure visible around them.
+- New projects default to one generic Choreography track. A single-track
+  section is one compact row: its section name occupies the lane label and no
+  separate section-title row is reserved. Projects already containing multiple
+  tracks retain distinct labeled lanes; track management is deferred.
+- Drag empty time to create, drag a body to reposition, and drag an edge to
+  resize. Whole-beat snapping is the default; Shift temporarily allows exact
+  fractional-beat placement.
+- Empty board space uses a crosshair cursor, move bodies use an open/closed
+  hand, and resize edges use a horizontal-resize cursor. The fixed Edit strip
+  exposes Add, Rename, Undo, Redo, and Delete with icons and tooltips. Right
+  click offers Add at empty time or Rename/Delete for a move.
+- The red playhead is directly draggable in both Structure and Choreography
+  boards. Horizontal motion seeks within a row; vertical motion intentionally
+  remaps to the corresponding beat in the row under the pointer, so crossing a
+  row can jump through discontinuous timeline regions.
+- Both boards keep their count ruler pinned to the top of the scroll viewport
+  during vertical scrolling. The ruler follows horizontal scrolling and board
+  zoom so its labels and ticks remain aligned with the underlying grid.
+- Choreography exposes the same Lucide continuous-count toggle as Structure,
+  with identical checked behavior: off repeats `1…group size` for each count
+  group; on labels beats continuously across the longest visible section.
+- When adjacent move edges share the pointer hit area, the already-selected
+  move wins hit testing; otherwise normal visual stacking determines the hit.
+  This preference applies only to ambiguous hits and makes its resize edge
+  stable without preventing selection of other moves.
+- A move crossing section rows remains one object and appears as connected
+  continuation segments. Selecting or editing any segment affects that move.
+- Double-click edits the short label inline. The right inspector edits label,
+  notes, exact start, and duration. It is collapsed by default; the left side
+  of the board reserves editing actions while the independently right-aligned
+  Edit-strip control toggles it using Lucide `panel-right-open` and
+  `panel-right-close` icons.
+- Delete removes the selected move. Ctrl+Z and Ctrl+Shift+Z traverse the same
+  history used by Setup commands. A completed drag or conflict resolution is
+  one history entry.
+- Same-track overlap offers Cancel, Trim edited move, and Shift later moves.
+  Trim preserves existing choreography and keeps the free interval containing
+  the release point. Shift preserves durations and gaps while rippling the
+  conflicting and subsequent moves later.
 
 ## Waveform
 
@@ -125,9 +188,13 @@ revises them.
   out/in/fit, selection-to-playhead, and ruler-number mode. Edit exposes
   template generation, add section, add 8-count block, undo, copy, paste,
   delete, and align-to-Anchor using Lucide icons with accessible tooltips.
-- An ordinary mouse wheel retains vertical scrolling. Ctrl+wheel changes the
-  Structure board's horizontal beat scale; it does not alter beat timing or
-  row height.
+- Both Structure and Choreography boards expose horizontal zoom out, zoom in,
+  and fit controls. An ordinary mouse wheel retains vertical scrolling;
+  Ctrl+wheel changes the active board's horizontal beat scale without altering
+  beat timing or row height. Each pinned ruler remains aligned with its canvas
+  through horizontal scrolling and zooming.
+- Both board rulers use the same hierarchy: major count-group boundaries and
+  labels are darker and heavier than minor beat ticks and labels.
 - The song reads vertically with one sequential top-level section per row.
 - Rows display local beat grids but retain exact absolute song-beat intervals.
 - A normal AABA section defaults to 32 beats displayed as four 8-count blocks.
